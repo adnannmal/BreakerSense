@@ -1,2 +1,4 @@
 # BreakerSense
-Senior Design Group
+Senior Design Project
+
+By: Adnan Malik, Darren Peng, James McCormack
