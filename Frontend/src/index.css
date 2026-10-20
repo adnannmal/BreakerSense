@@ -54,6 +54,14 @@ body {
   margin: 0;
 }
 
+.circuit-background {
+  background-color: #020d20;
+  background-image: url("/circuit-background.svg");
+  background-position: center;
+  background-size: cover;
+  background-attachment: fixed;
+}
+
 #root {
   width: 1126px;
   max-width: 100%;

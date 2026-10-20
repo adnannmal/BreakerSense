@@ -1,0 +1,91 @@
+.settings-content {
+  align-content: start;
+}
+
+.settings-panel {
+  border: 1px solid #dce6e3;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 14px 35px rgba(36, 71, 66, 0.06);
+}
+
+.settings-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.8fr);
+  align-items: center;
+  gap: 28px;
+  padding: 28px 32px;
+}
+
+.settings-section + .settings-section {
+  border-top: 1px solid #dce6e3;
+}
+
+.settings-section h2 {
+  margin: 0;
+  color: #17242b;
+  font-size: 21px;
+}
+
+.settings-description {
+  margin: 8px 0 0;
+  color: #718087;
+  font-size: 13px;
+}
+
+.settings-control {
+  display: grid;
+  gap: 8px;
+  color: #39615c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-control select {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #dce6e3;
+  border-radius: 3px;
+  color: #17242b;
+  background: #fff;
+  font: inherit;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  color: #17242b;
+}
+
+.settings-toggle > span {
+  display: grid;
+  gap: 5px;
+}
+
+.settings-toggle strong { font-size: 14px; }
+.settings-toggle span span { color: #718087; font-size: 12px; line-height: 1.5; }
+.settings-toggle input { width: 18px; height: 18px; accent-color: #1b9586; }
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 20px 32px;
+  border-top: 1px solid #dce6e3;
+  background: #f8faf9;
+}
+
+.settings-saved {
+  margin: 0;
+  color: #147568;
+  font-size: 13px;
+}
+
+@media (max-width: 700px) {
+  .settings-section { grid-template-columns: 1fr; gap: 20px; padding: 24px 20px; }
+  .settings-actions { align-items: stretch; flex-direction: column; padding: 20px; }
+  .settings-actions .submit-button { width: 100%; }
+}

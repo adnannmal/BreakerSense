@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 function CreateAccountPage() {
   return (
-    <div style={styles.page}>
+    <div className="circuit-background" style={styles.page}>
       <header style={styles.header}>
         <h1 style={styles.logo}>BreakerSense</h1>
       </header>
@@ -41,12 +41,11 @@ function CreateAccountPage() {
 const styles = {
   page: {
     minHeight: "100vh",
-    backgroundColor: "#f4f6f8",
     fontFamily: "Arial",
   },
 
   header: {
-    backgroundColor: "#1f2937",
+    backgroundColor: "#1b9586",
     padding: "20px",
     textAlign: "center",
   },
@@ -79,7 +78,7 @@ const styles = {
 
   button: {
     padding: "12px",
-    backgroundColor: "#2563eb",
+    backgroundColor: "#1b9586",
     color: "white",
     border: "none",
     borderRadius: "6px",

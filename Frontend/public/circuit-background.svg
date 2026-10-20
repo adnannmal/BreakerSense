@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="background" cx="50%" cy="48%" r="75%">
+      <stop offset="0" stop-color="#0a2340"/>
+      <stop offset="1" stop-color="#020d20"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      .trace { fill: none; stroke: #4eb9e9; stroke-width: 2; opacity: .72; }
+      .node { fill: #65c7ee; opacity: .85; }
+      .dot { fill: #4eb9e9; opacity: .65; }
+      .ring { fill: #071a32; stroke: #65c7ee; stroke-width: 2; }
+    </style>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#background)"/>
+  <g class="trace">
+    <path d="M0 76H102V184H14V312H110V432H0"/><path d="M0 26H220V0M220 0V58M220 0H390V115H302V0"/>
+    <path d="M0 604H118V544H212M0 650H72V760H182V870H232"/><path d="M0 826H74V938H183V1080"/>
+    <path d="M1920 42H1774V96H1878V204H1920M1920 272H1852V420H1750V326H1668"/>
+    <path d="M1920 548H1808V430H1698V548H1582V418H1498"/><path d="M1920 786H1814V930H1692V1080"/>
+    <path d="M390 1080V1002H480V902H622V1080M560 1080V980H452V924H350"/>
+    <path d="M1024 1080V954H928V844H790V764H680M1168 1080V972H1260V826H1154V710H1042"/>
+    <path d="M1520 1080V944H1610V860H1742V748H1848V1080"/>
+  </g>
+  <g filter="url(#glow)">
+    <circle class="ring" cx="102" cy="184" r="10"/><circle class="ring" cx="220" cy="0" r="9"/>
+    <circle class="ring" cx="110" cy="432" r="10"/><circle class="ring" cx="182" cy="870" r="10"/>
+    <circle class="ring" cx="1774" cy="96" r="10"/><circle class="ring" cx="1698" cy="548" r="10"/>
+    <circle class="ring" cx="1814" cy="930" r="10"/><circle class="ring" cx="480" cy="902" r="10"/>
+    <circle class="ring" cx="1260" cy="826" r="10"/>
+  </g>
+  <g class="node">
+    <circle cx="14" cy="312" r="4"/><circle cx="302" cy="115" r="4"/><circle cx="118" cy="544" r="4"/>
+    <circle cx="72" cy="760" r="4"/><circle cx="74" cy="938" r="4"/><circle cx="1878" cy="204" r="4"/>
+    <circle cx="1852" cy="420" r="4"/><circle cx="1808" cy="430" r="4"/><circle cx="1814" cy="930" r="4"/>
+    <circle cx="622" cy="902" r="4"/><circle cx="928" cy="844" r="4"/><circle cx="1154" cy="710" r="4"/>
+    <circle cx="1610" cy="860" r="4"/><circle cx="1742" cy="748" r="4"/>
+  </g>
+  <g class="dot">
+    <circle cx="146" cy="130" r="3"/><circle cx="414" cy="74" r="3"/><circle cx="736" cy="190" r="3"/><circle cx="1042" cy="264" r="3"/>
+    <circle cx="1280" cy="216" r="3"/><circle cx="1504" cy="296" r="3"/><circle cx="1760" cy="286" r="3"/>
+    <circle cx="300" cy="318" r="3"/><circle cx="562" cy="374" r="3"/><circle cx="834" cy="424" r="3"/><circle cx="1184" cy="364" r="3"/>
+    <circle cx="1422" cy="454" r="3"/><circle cx="1680" cy="390" r="3"/><circle cx="242" cy="548" r="3"/>
+    <circle cx="454" cy="610" r="3"/><circle cx="706" cy="576" r="3"/><circle cx="986" cy="624" r="3"/><circle cx="1322" cy="590" r="3"/>
+    <circle cx="1548" cy="650" r="3"/><circle cx="1780" cy="604" r="3"/><circle cx="318" cy="798" r="3"/>
+    <circle cx="604" cy="742" r="3"/><circle cx="844" cy="812" r="3"/><circle cx="1088" cy="760" r="3"/><circle cx="1428" cy="828" r="3"/>
+  </g>
+</svg>
