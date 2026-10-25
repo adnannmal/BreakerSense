@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
+import { api } from "../api";
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -7,26 +8,29 @@ function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const mockUser = {
-    email: "test@breakersense.com",
-    password: "password123",
-  };
-
-  function handleLogin(e) {
+  
+  async function handleLogin(e) {
     e.preventDefault();
 
-    if (
-      email === mockUser.email &&
-      password === mockUser.password
-    ) {
-      setError("");
+    setError("");
+    setLoading(true);
+
+    try {
+      const data = await api.login(email.trim(), password);
+
+      sessionStorage.setItem("token", data.token);
+      sessionStorage.setItem("email", data.email);
 
       navigate("/success");
-    } else {
-      setError("Invalid email or password");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
+
 
   return (
     <div style={styles.page}>
@@ -64,9 +68,13 @@ function LoginPage() {
             </p>
           )}
 
-          <button style={styles.button}>
-            Sign In
-          </button>
+          <button
+          style={styles.button}
+          type="submit"
+          disabled={loading}
+        >
+          {loading ? "Signing In..." : "Sign In"}
+        </button>
 
           <p style={styles.text}>
             Don’t have an account?{" "}
