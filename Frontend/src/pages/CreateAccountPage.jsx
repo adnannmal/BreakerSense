@@ -1,6 +1,38 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { api } from "../api";
 
 function CreateAccountPage() {
+  const navigate = useNavigate();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleRegister(e) {
+    e.preventDefault();
+
+    setError("");
+    setLoading(true);
+
+    try {
+      const data = await api.register(
+        email.trim(),
+        password
+      );
+
+      sessionStorage.setItem("token", data.token);
+      sessionStorage.setItem("email", data.email);
+
+      navigate("/success");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div style={styles.page}>
       <header style={styles.header}>
@@ -8,22 +40,40 @@ function CreateAccountPage() {
       </header>
 
       <main style={styles.main}>
-        <div style={styles.form}>
+        <form style={styles.form} onSubmit={handleRegister}>
           <h2>Create Account</h2>
 
           <input
+            type="email"
             placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             style={styles.input}
+            required
           />
 
           <input
             placeholder="Password"
             type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             style={styles.input}
+            minLength={6}
+            required
           />
 
-          <button style={styles.button}>
-            Create Account
+          {error && (
+            <p style={{ color: "red", fontSize: "14px" }}>
+              {error}
+            </p>
+          )}
+
+          <button
+            style={styles.button}
+            type="submit"
+            disabled={loading}
+          >
+            {loading ? "Creating Account..." : "Create Account"}
           </button>
 
           <p style={styles.text}>
@@ -32,7 +82,7 @@ function CreateAccountPage() {
               Back to Login
             </Link>
           </p>
-        </div>
+        </form>
       </main>
     </div>
   );
