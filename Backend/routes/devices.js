@@ -2,6 +2,10 @@ const express = require("express");
 const { pool } = require("../db");
 const { requireAuth } = require("../middleware/auth");
 
+const {
+  generateDeviceKey,
+  hashDeviceKey,
+} = require("../security/deviceKeys");
 const router = express.Router();
 
 router.use(requireAuth);
@@ -13,6 +17,9 @@ const DEFAULT_TEMPERATURE_THRESHOLD = 60;  // °C
 
 const DEVICE_COLUMNS = `device_id, nickname, location, capacity_amps, status,
   voltage_threshold, current_threshold, power_threshold, temperature_threshold, created_at`;
+
+const apiKey = generateDeviceKey();
+const apiKeyHash = hashDeviceKey(apiKey);
 
 // GET /api/devices — list the logged-in user's registered devices
 router.get("/", async (req, res) => {
@@ -59,30 +66,76 @@ router.post("/", async (req, res) => {
       return res.status(409).json({ error: "That device_id is already registered" });
     }
 
-    const result = await pool.query(
-      `INSERT INTO devices
-         (device_id, user_id, nickname, location, capacity_amps, status,
-          voltage_threshold, current_threshold, power_threshold, temperature_threshold)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING ${DEVICE_COLUMNS}`,
-      [
-        device_id.trim(),
-        req.userId,
-        nickname || null,
-        location || null,
-        capacity,
-        startStatus,
-        voltage_threshold ?? DEFAULT_VOLTAGE_THRESHOLD,
-        // The breaker's rated capacity IS its current limit.
-        current_threshold ?? capacity,
-        power_threshold ?? null,
-        temperature_threshold ?? DEFAULT_TEMPERATURE_THRESHOLD,
-      ]
-    );
+    
+  const result = await pool.query(
+    `INSERT INTO devices
+      (device_id, user_id, nickname, location, capacity_amps, status,
+        voltage_threshold, current_threshold, power_threshold,
+        temperature_threshold, api_key_hash)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    RETURNING ${DEVICE_COLUMNS}`,
+    [
+      device_id.trim(),
+      req.userId,
+      nickname || null,
+      location || null,
+      capacity,
+      startStatus,
+      voltage_threshold ?? DEFAULT_VOLTAGE_THRESHOLD,
+      current_threshold ?? capacity,
+      power_threshold ?? null,
+      temperature_threshold ?? DEFAULT_TEMPERATURE_THRESHOLD,
+      apiKeyHash,
+    ]
+  );
+
+  // The plaintext key is returned only during registration.
+  res.status(201).json({
+    ...result.rows[0],
+    api_key: apiKey,
+  });
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("Register device error:", err);
     res.status(500).json({ error: "Could not register device" });
+  }
+});
+
+
+// POST /api/devices/:device_id/rotate-key
+// Only the device's logged-in owner can replace its key.
+router.post("/:device_id/rotate-key", async (req, res) => {
+  try {
+    const apiKey = generateDeviceKey();
+    const apiKeyHash = hashDeviceKey(apiKey);
+
+    const result = await pool.query(
+      `UPDATE devices
+       SET api_key_hash = $1
+       WHERE device_id = $2 AND user_id = $3
+       RETURNING device_id`,
+      [apiKeyHash, req.params.device_id, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: "Device not found",
+      });
+    }
+
+    res.set("Cache-Control", "no-store");
+
+    return res.json({
+      device_id: result.rows[0].device_id,
+      api_key: apiKey,
+      message: "Save this key now. It cannot be retrieved later.",
+    });
+  } catch (error) {
+    console.error("Device key rotation failed");
+
+    return res.status(500).json({
+      error: "Could not rotate device key",
+    });
   }
 });
 
