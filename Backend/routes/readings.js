@@ -35,7 +35,7 @@ function toNumberOrNull(v) {
 // reading back to the right account.
 // Body example: { "device_id": "esp32-1", "voltage": 120.5, "current": 3.2, "power": 385.6, "temperature": 41.5 }
 // (temperature is optional)
-router.post("/", requireDeviceAuth, async (req, res) => {  const { device_id } = req.body;
+router.post("/", requireDeviceAuth, async (req, res) => {  const device_id = req.deviceId;
   const voltage = toNumberOrNull(req.body.voltage);
   const current = toNumberOrNull(req.body.current);
   const power = toNumberOrNull(req.body.power);

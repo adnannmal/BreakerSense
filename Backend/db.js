@@ -66,7 +66,13 @@ async function initDb() {
   await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS location TEXT;`);          // "Panel A / Line 01"
   await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS capacity_amps NUMERIC;`);  // "Capacity (amps)"
   await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS temperature_threshold NUMERIC;`); // Temperature sensor card
-
+  // Store the hash of each device's secret API key.
+  // Existing devices will initially have a NULL hash until a key is issued.
+  await pool.query(`
+    ALTER TABLE devices
+    ADD COLUMN IF NOT EXISTS api_key_hash TEXT;
+  `);
+  
   // Notifications
   await pool.query(`
     CREATE TABLE IF NOT EXISTS alerts (
