@@ -7,7 +7,7 @@ export default defineConfig({
   preview: {
     host: "0.0.0.0",
     allowedHosts: [
-      "breaker-frontend-production-a23c.up.railway.app",
+      "breakersense.up.railway.app",
     ],
   },
 });
