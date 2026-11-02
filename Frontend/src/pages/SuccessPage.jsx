@@ -38,14 +38,17 @@ function formatDate(value) {
 function SuccessPage() {
   const [devices, setDevices] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
-  const [dashboard, setDashboard] = useState(null);
+  const [dashboardResponse, setDashboardResponse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dataError, setDataError] = useState("");
-  const [lastFetchedAt, setLastFetchedAt] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [commandError, setCommandError] = useState("");
+  const [isCommanding, setIsCommanding] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -54,7 +57,10 @@ function SuccessPage() {
       try {
         const result = await api.getDevices();
         if (!active) return;
-        const list = Array.isArray(result) ? result : [];
+        if (!Array.isArray(result)) {
+          throw new Error("Unexpected response while loading breakers");
+        }
+        const list = result;
         setDevices(list);
         setSelectedDeviceId((previous) =>
           list.some((device) => device.device_id === previous)
@@ -76,10 +82,7 @@ function SuccessPage() {
   }, []);
 
   useEffect(() => {
-    if (!selectedDeviceId) {
-      setDashboard(null);
-      return;
-    }
+    if (!selectedDeviceId) return;
 
     let active = true;
     let inFlight = false;
@@ -90,21 +93,26 @@ function SuccessPage() {
       try {
         const result = await api.getDashboard(selectedDeviceId);
         if (!active) return;
-        setDashboard(result);
-        setLastFetchedAt(new Date());
+        if (
+          !result?.device ||
+          result.device.device_id !== selectedDeviceId ||
+          !Array.isArray(result.alerts) ||
+          !Array.isArray(result.history)
+        ) {
+          throw new Error("Unexpected dashboard data returned by the backend");
+        }
+        setDashboardResponse(result);
         setDataError("");
       } catch (err) {
         if (active) {
           setDataError(err.message);
-          setDashboard(null);
+          setDashboardResponse(null);
         }
       } finally {
         inFlight = false;
       }
     }
 
-    setDashboard(null);
-    setLastFetchedAt(null);
     loadDashboard();
     const interval = setInterval(loadDashboard, 3000);
 
@@ -114,14 +122,30 @@ function SuccessPage() {
     };
   }, [selectedDeviceId]);
 
+  const dashboard =
+    dashboardResponse?.device?.device_id === selectedDeviceId
+      ? dashboardResponse
+      : null;
   const device = dashboard?.device;
   const latest = dashboard?.latest;
-  const updatedAt = lastFetchedAt ? lastFetchedAt.toLocaleTimeString() : "Never";
-  const readingAge = latest?.updated_at
-    ? Date.now() - new Date(latest.updated_at).getTime()
+  const updatedAt = dashboard?.server_time
+    ? new Date(dashboard.server_time).toLocaleTimeString()
+    : "Never";
+  const readingAge = latest?.updated_at && dashboard?.server_time
+    ? new Date(dashboard.server_time).getTime() -
+      new Date(latest.updated_at).getTime()
     : null;
   const readingFresh =
     readingAge !== null && readingAge >= 0 && readingAge < 15000;
+  const normalizedStatus = device?.status?.toUpperCase();
+  const statusTone =
+    normalizedStatus === "ON"
+      ? "on"
+      : normalizedStatus === "TRIPPED"
+        ? "tripped"
+        : normalizedStatus === "OFF"
+          ? "off"
+          : "unknown";
 
   const breaker = {
     name: device?.nickname || device?.device_id || "No breaker registered",
@@ -138,6 +162,28 @@ function SuccessPage() {
         : `${formatNumber(dashboard.uptime_pct, 2)}%`,
     lastEvent: dashboard?.last_event?.message || "No recent alerts",
   };
+  const commandPending = Boolean(device?.requested_status);
+  const commandTarget =
+    normalizedStatus === "ON" || normalizedStatus === "TRIPPED" ? "OFF" : "ON";
+  const controlDisabled =
+    isCommanding ||
+    commandPending ||
+    !device ||
+    normalizedStatus === "TRIPPED" ||
+    !["ON", "OFF", "TRIPPED"].includes(normalizedStatus) ||
+    (commandTarget === "ON" &&
+      (!readingFresh || normalizedStatus !== "OFF"));
+  const controlDisabledReason = !device
+    ? "Select a registered breaker to control it."
+    : commandPending
+      ? `Waiting for the breaker to report ${device.requested_status}.`
+      : normalizedStatus === "TRIPPED"
+        ? "A tripped breaker must be inspected and reset before it can be turned on."
+        : !["ON", "OFF"].includes(normalizedStatus)
+          ? "The breaker has not reported a controllable state."
+        : commandTarget === "ON" && !readingFresh
+          ? "A recent device reading is required before turning on."
+          : "";
 
   function makeSensor(label, value, unit, threshold, tone) {
     const valid = value !== null && value !== undefined && Number.isFinite(Number(value));
@@ -161,6 +207,7 @@ function SuccessPage() {
   const sensors = [
     makeSensor("Voltage", latest?.voltage, "V", device?.voltage_threshold, "blue"),
     makeSensor("Current", latest?.current, "A", device?.current_threshold, "teal"),
+    makeSensor("Power", latest?.power, "W", device?.power_threshold, "blue"),
     makeSensor(
       "Temperature",
       latest?.temperature,
@@ -261,6 +308,70 @@ function SuccessPage() {
     }
   }
 
+  async function handleDeleteBreaker() {
+    const selectedDevice = devices.find(
+      (item) => item.device_id === selectedDeviceId
+    );
+    if (!selectedDevice || isDeleting) return;
+
+    const deviceName = selectedDevice.nickname || selectedDevice.device_id;
+    const confirmed = window.confirm(
+      `Delete "${deviceName}"? This permanently removes the breaker, its readings, history, alerts, and device key. This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeleteError("");
+    setIsDeleting(true);
+    try {
+      await api.deleteDevice(selectedDevice.device_id);
+      const updatedDevices = devices.filter(
+        (item) => item.device_id !== selectedDevice.device_id
+      );
+      setDevices(updatedDevices);
+      setSelectedDeviceId(updatedDevices[0]?.device_id || "");
+      setDataError("");
+    } catch (err) {
+      setDeleteError(err.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  async function handleToggleBreaker() {
+    if (controlDisabled) return;
+
+    const targetStatus = commandTarget;
+    if (
+      targetStatus === "ON" &&
+      !window.confirm(
+        "Turn on this breaker? This will energize the connected circuit. Confirm that the circuit and connected equipment are safe to energize."
+      )
+    ) {
+      return;
+    }
+
+    setCommandError("");
+    setIsCommanding(true);
+    try {
+      const command = await api.commandDevice(selectedDeviceId, targetStatus);
+      setDashboardResponse((current) =>
+        current?.device?.device_id === selectedDeviceId
+          ? {
+              ...current,
+              device: {
+                ...current.device,
+                requested_status: command.requested_status,
+              },
+            }
+          : current
+      );
+    } catch (err) {
+      setCommandError(err.message);
+    } finally {
+      setIsCommanding(false);
+    }
+  }
+
   return (
     <div className="dashboard-page">
       {loading && <p>Loading registered breakers...</p>}
@@ -320,11 +431,60 @@ function SuccessPage() {
               <h2 id="breaker-heading">{breaker.name}</h2>
               <p className="muted-text">{breaker.location}</p>
             </div>
-            <span className="status-pill">
-              <span className="status-dot" aria-hidden="true" />
-              {breaker.status}
-            </span>
+            <div className="breaker-card__actions">
+              <span className={`status-pill status-pill--${statusTone}`}>
+                <span className="status-dot" aria-hidden="true" />
+                {breaker.status}
+              </span>
+              {selectedDeviceId && (
+                <button
+                  className="delete-breaker-button"
+                  type="button"
+                  onClick={handleDeleteBreaker}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? "Deleting..." : "Delete breaker"}
+                </button>
+              )}
+            </div>
           </div>
+          <div className="breaker-control">
+            <div className="breaker-control__copy">
+              <strong>Contactor control</strong>
+              <p>
+                {controlDisabledReason ||
+                  `The breaker is reported ${normalizedStatus?.toLowerCase() || "unknown"}.`}
+              </p>
+            </div>
+            <button
+              className={`control-breaker-button control-breaker-button--${commandTarget.toLowerCase()}`}
+              type="button"
+              onClick={handleToggleBreaker}
+              disabled={controlDisabled}
+            >
+              {isCommanding
+                ? "Sending..."
+                : commandPending
+                  ? `Waiting for ${device.requested_status.toLowerCase()}...`
+                  : `Turn ${commandTarget.toLowerCase()}`}
+            </button>
+          </div>
+          {commandPending && (
+            <p className="command-breaker-notice" role="status" aria-live="polite">
+              Waiting for the breaker to report {device.requested_status}. The
+              command expires after 30 seconds if the device does not receive it.
+            </p>
+          )}
+          {commandError && (
+            <p className="delete-breaker-error" role="alert">
+              Could not control breaker: {commandError}
+            </p>
+          )}
+          {deleteError && (
+            <p className="delete-breaker-error" role="alert">
+              Could not delete breaker: {deleteError}
+            </p>
+          )}
           <div className="breaker-summary">
             <div className="breaker-icon" aria-hidden="true">✓</div>
             <div>
@@ -338,7 +498,7 @@ function SuccessPage() {
               <strong>{breaker.uptime}</strong>
             </div>
             <div>
-              <span className="metric-label">Recorded breaker state</span>
+              <span className="metric-label">Reported breaker state</span>
               <strong>{breaker.status}</strong>
             </div>
             <div>

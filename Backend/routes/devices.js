@@ -59,6 +59,43 @@ router.get("/", async (req, res) => {
   }
 });
 
+// POST /api/devices/:device_id/command
+// Queue an ON/OFF request for the device. The device must acknowledge through /readings.
+router.post("/:device_id/command", async (req, res) => {
+  const requestedStatus = req.body?.status;
+  if (!["ON", "OFF"].includes(requestedStatus)) {
+    return res.status(400).json({ error: "status must be ON or OFF" });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE devices
+       SET requested_status = CASE WHEN status = $1 THEN NULL ELSE $1 END,
+           command_expires_at = CASE WHEN status = $1 THEN NULL ELSE NOW() + INTERVAL '30 seconds' END
+       WHERE device_id = $2 AND user_id = $3
+         AND (COALESCE(status, 'OFF') <> 'TRIPPED' OR $1 = 'OFF')
+       RETURNING device_id, status, requested_status, command_expires_at`,
+      [requestedStatus, req.params.device_id, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      const ownedDevice = await pool.query(
+        "SELECT status FROM devices WHERE device_id = $1 AND user_id = $2",
+        [req.params.device_id, req.userId]
+      );
+      if (ownedDevice.rows.length === 0) {
+        return res.status(404).json({ error: "Device not found" });
+      }
+      return res.status(409).json({ error: "A tripped breaker cannot be turned on" });
+    }
+
+    return res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Queue breaker command error:", error);
+    return res.status(500).json({ error: "Could not send breaker command" });
+  }
+});
+
 // ---------------------------------------------------------
 // POST /api/devices
 // Register a new breaker and generate its first API key.
