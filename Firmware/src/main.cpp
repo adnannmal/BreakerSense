@@ -31,6 +31,7 @@ const float ADS_LSB_SIZE = 0.000125;
 void handleSerialCommands();
 void turnContactorOn();
 void turnContactorOff();
+void checkRemoteContactorCommand();
 
 float readVoltageRMS();
 float readADSCurrentRMS();
@@ -128,7 +129,8 @@ void sendTestReading() {
     payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
     payload += "\"voltage\":120.4,";
     payload += "\"current\":0.5,";
-    payload += "\"power\":60.2";
+    payload += "\"power\":60.2,";
+    payload += "\"status\":\"" + String(contactorOn ? "ON" : "OFF") + "\"";
     payload += "}";
 
     Serial.println("Sending simulated reading to Railway...");
@@ -145,6 +147,47 @@ void sendTestReading() {
         Serial.println(http.getString());
     } else {
         Serial.print("HTTPS error: ");
+        Serial.println(http.errorToString(responseCode));
+    }
+
+    http.end();
+}
+
+void checkRemoteContactorCommand() {
+    if (WiFi.status() != WL_CONNECTED || time(nullptr) < 1700000000) {
+        return;
+    }
+
+    WiFiClientSecure client;
+    client.setCACert(RAILWAY_ROOT_CA);
+
+    HTTPClient http;
+    const char* url =
+        "https://breaker-backend-production-bb10.up.railway.app/readings/command";
+
+    if (!http.begin(client, url)) {
+        Serial.println("Failed to initialize command check.");
+        return;
+    }
+
+    http.setTimeout(10000);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-API-Key", DEVICE_API_KEY);
+    const String payload = "{\"device_id\":\"" + String(DEVICE_ID) + "\"}";
+    const int responseCode = http.POST(payload);
+
+    if (responseCode == 200) {
+        const String response = http.getString();
+        if (response.indexOf("\"requested_status\":\"ON\"") >= 0 && !contactorOn) {
+            turnContactorOn();
+        } else if (response.indexOf("\"requested_status\":\"OFF\"") >= 0 && contactorOn) {
+            turnContactorOff();
+        }
+    } else if (responseCode > 0) {
+        Serial.print("Command check rejected: ");
+        Serial.println(http.getString());
+    } else {
+        Serial.print("Command check failed: ");
         Serial.println(http.errorToString(responseCode));
     }
 
@@ -216,6 +259,8 @@ void loop() {
 
     if (millis() - lastUpdate >= UPDATE_INTERVAL) {
         lastUpdate = millis();
+
+        checkRemoteContactorCommand();
 
         // Existing sensor functions.
         float voltage = readVoltageRMS();

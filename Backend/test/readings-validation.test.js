@@ -36,6 +36,18 @@ test("negative temperature is allowed within range", () => {
   assert.equal(parseReading({ temperature: -10 }).values.temperature, -10);
 });
 
+test("accepts a contactor state report without measurements", () => {
+  const reading = parseReading({ status: "OFF" });
+  assert.deepEqual(reading.values, {
+    voltage: null,
+    current: null,
+    power: null,
+    temperature: null,
+  });
+  assert.equal(reading.status, "OFF");
+  assert.equal(parseReading({ status: "TRIPPED" }).field, "status");
+});
+
 test("rejects payloads with no measurements so the last good reading is kept", () => {
   assert.ok(parseReading({ device_id: "esp32-1" }).error);
   assert.ok(parseReading({ device_id: "esp32-1", voltage: null, current: null }).error);

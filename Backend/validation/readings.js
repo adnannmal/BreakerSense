@@ -1,8 +1,8 @@
 // Validation for POST /readings payloads.
 //
 // Every measurement field is optional, but a field that IS sent must be a finite number
-// (or a numeric string) inside its allowed range — otherwise the whole upload is rejected
-// instead of quietly storing null. Limits can be tuned per deployment with env variables.
+// (or a numeric string) inside its allowed range. A device may also report its ON/OFF state.
+// Limits can be tuned per deployment with env variables.
 
 function limit(name, fallback) {
   const raw = process.env[name];
@@ -22,10 +22,15 @@ function measurementLimits() {
   };
 }
 
-// Returns { values } on success or { error, field } on failure.
-// values has every measurement key, set to null when the field wasn't sent.
+// Returns { values, status } on success or { error, field } on failure.
+// Missing measurements are null; status is null until the device reports ON or OFF.
 function parseReading(body) {
   const values = {};
+  const status = body?.status;
+
+  if (status !== undefined && status !== null && !["ON", "OFF"].includes(status)) {
+    return { field: "status", error: "status must be ON or OFF" };
+  }
 
   for (const [key, range] of Object.entries(measurementLimits())) {
     const raw = body?.[key];
@@ -51,11 +56,11 @@ function parseReading(body) {
 
   // A payload with no measurements at all (e.g. the sensor failed to read) must not
   // overwrite the last good reading with nulls.
-  if (Object.values(values).every((v) => v === null)) {
+  if (Object.values(values).every((v) => v === null) && status == null) {
     return { error: "At least one measurement (voltage, current, power, temperature) is required" };
   }
 
-  return { values };
+  return { values, status: status ?? null };
 }
 
 module.exports = { parseReading, measurementLimits };

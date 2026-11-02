@@ -177,10 +177,118 @@
   white-space: nowrap;
 }
 
+.breaker-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.delete-breaker-button {
+  padding: 8px 12px;
+  border: 1px solid #d92d20;
+  border-radius: 4px;
+  color: #b42318;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.delete-breaker-button:hover:not(:disabled) {
+  color: #fff;
+  background: #b42318;
+}
+
+.delete-breaker-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.control-breaker-button {
+  min-width: 128px;
+  padding: 12px 20px;
+  border: 1px solid #1b9586;
+  border-radius: 4px;
+  color: #147568;
+  background: #e6f6f1;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.breaker-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #f8fbf9;
+}
+
+.breaker-control__copy strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+
+.breaker-control__copy p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.control-breaker-button--off {
+  border-color: #d92d20;
+  color: #b42318;
+  background: #fff;
+}
+
+.control-breaker-button:hover:not(:disabled) {
+  color: #fff;
+  background: #147568;
+}
+
+.control-breaker-button--off:hover:not(:disabled) {
+  background: #b42318;
+}
+
+.control-breaker-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.delete-breaker-error {
+  margin-top: 16px !important;
+  color: #b42318;
+  font-size: 13px;
+}
+
+.command-breaker-notice {
+  margin-top: 16px !important;
+  color: #39615c;
+  font-size: 13px;
+}
+
 .status-pill {
   padding: 8px 12px;
   color: #147568;
   background: #e6f6f1;
+}
+
+.status-pill--off,
+.status-pill--unknown {
+  color: #596970;
+  background: #e8efed;
+}
+
+.status-pill--tripped {
+  color: #b42318;
+  background: #feeceb;
 }
 
 .breaker-summary {
@@ -247,7 +355,7 @@
 
 .sensor-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 14px;
 }
 
@@ -497,7 +605,10 @@
   .sensor-grid { grid-template-columns: 1fr; }
   .breaker-metrics { gap: 14px; }
   .section-heading { display: block; }
-  .status-pill { margin-top: 18px; }
+  .breaker-card__actions { margin-top: 18px; }
+  .status-pill { margin-top: 0; }
+  .breaker-control { align-items: stretch; flex-direction: column; }
+  .control-breaker-button { width: 100%; }
   .alert-row { grid-template-columns: 10px 1fr; }
   .alert-row time { grid-column: 2; }
 }

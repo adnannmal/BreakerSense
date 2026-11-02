@@ -1,10 +1,10 @@
 const API_URL = import.meta.env.VITE_API_URL;
 
-if (!API_URL) {
-  throw new Error("VITE_API_URL is not configured");
-}
-
 async function request(path, options = {}) {
+  if (!API_URL) {
+    throw new Error("VITE_API_URL is not configured");
+  }
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
@@ -35,6 +35,18 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
 
+  forgotPassword: (email) =>
+    request("/api/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: (token, password) =>
+    request("/api/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    }),
+
   getDevices: () =>
     request("/api/devices", {
       headers: {
@@ -55,7 +67,16 @@ export const api = {
     },
   }),
 
-    getAlerts: () =>
+  commandDevice: (deviceId, status) =>
+    request(`/api/devices/${encodeURIComponent(deviceId)}/command`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionStorage.getItem("token")}`,
+      },
+      body: JSON.stringify({ status }),
+    }),
+
+  getAlerts: () =>
     request("/alerts", {
         headers: {
         Authorization: `Bearer ${sessionStorage.getItem("token")}`,
@@ -69,5 +90,13 @@ export const api = {
         Authorization: `Bearer ${sessionStorage.getItem("token")}`,
         },
         body: JSON.stringify(device),
+    }),
+
+  deleteDevice: (deviceId) =>
+    request(`/api/devices/${encodeURIComponent(deviceId)}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `******"token")}`,
+      },
     }),
 };
