@@ -2,6 +2,7 @@ const express = require("express");
 const { pool } = require("../db");
 const { requireAuth } = require("../middleware/auth");
 const { requireDeviceAuth } = require("../middleware/deviceAuth");
+const { parseReading } = require("../validation/readings");
 
 const router = express.Router();
 
@@ -23,23 +24,21 @@ const METRICS = [
   { key: "temperature", label: "Temperature", unit: "°C", thresholdCol: "temperature_threshold" },
 ];
 
-function toNumberOrNull(v) {
-  if (v === undefined || v === null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
 // POST /readings — the ESP32 calls this, no login required (devices don't
 // have accounts, people do). It only succeeds if device_id was already
 // registered to some user via POST /api/devices — that's what ties a
 // reading back to the right account.
 // Body example: { "device_id": "esp32-1", "voltage": 120.5, "current": 3.2, "power": 385.6, "temperature": 41.5 }
-// (temperature is optional)
-router.post("/", requireDeviceAuth, async (req, res) => {  const device_id = req.deviceId;
-  const voltage = toNumberOrNull(req.body.voltage);
-  const current = toNumberOrNull(req.body.current);
-  const power = toNumberOrNull(req.body.power);
-  const temperature = toNumberOrNull(req.body.temperature);
+// (each measurement is optional, but at least one is required; non-numeric or
+//  out-of-range values are rejected with 400 and nothing is stored)
+router.post("/", requireDeviceAuth, async (req, res) => {
+  const device_id = req.deviceId;
+
+  const parsed = parseReading(req.body);
+  if (parsed.error) {
+    return res.status(400).json({ error: parsed.error, ...(parsed.field && { field: parsed.field }) });
+  }
+  const { voltage, current, power, temperature } = parsed.values;
 
   if (!device_id) {
     return res.status(400).json({ error: "device_id is required" });
