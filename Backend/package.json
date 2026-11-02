@@ -1,11 +1,15 @@
 {
   "name": "breaker-backend",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "commonjs",
   "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "simulate": "node simulate-device.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -14,5 +18,8 @@
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "embedded-postgres": "18.6.0-beta.19"
   }
 }

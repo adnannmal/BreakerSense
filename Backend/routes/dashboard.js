@@ -1,6 +1,8 @@
 const express = require("express");
 const { pool } = require("../db");
 const { requireAuth } = require("../middleware/auth");
+const { sendError } = require("../lib/errors");
+const { connectionStatus } = require("../lib/health");
 
 const router = express.Router();
 
@@ -16,6 +18,10 @@ router.use(requireAuth);
 //   last_event  – most recent alert in the last 24h (open or resolved), or null
 //   alerts      – open alerts that still "need attention"
 //   history     – averaged current draw over the last N hours, for the line chart
+//   health      – connection status from the controller's last_seen (online/stale/offline/never)
+//
+// LEGACY single-breaker view: latest/uptime/history come from the controller's channel-1
+// breaker. Per-breaker data for multi-breaker controllers: /api/controllers/... (API_CONTRACT.md).
 router.get("/:device_id", async (req, res) => {
   const deviceId = req.params.device_id;
   const hours = Math.min(Math.max(Number(req.query.hours) || 6, 1), 24);
@@ -24,14 +30,21 @@ router.get("/:device_id", async (req, res) => {
     // 1) the device (also enforces "only your own devices")
     const deviceResult = await pool.query(
       `SELECT device_id, nickname, location, capacity_amps, status,
-              voltage_threshold, current_threshold, power_threshold, temperature_threshold, created_at
+              voltage_threshold, current_threshold, power_threshold, temperature_threshold, created_at, last_seen
        FROM devices WHERE device_id = $1 AND user_id = $2`,
       [deviceId, req.userId]
     );
     if (deviceResult.rows.length === 0) {
-      return res.status(404).json({ error: "Device not found" });
+      return sendError(res, 404, "DEVICE_NOT_FOUND", "Device not found");
     }
-    const device = deviceResult.rows[0];
+    const { last_seen, ...device } = deviceResult.rows[0];
+
+    // History is stored per breaker; this view shows channel 1.
+    const channelOne = await pool.query(
+      `SELECT id FROM breakers WHERE controller_id = $1 AND channel_number = 1`,
+      [deviceId]
+    );
+    const breakerPk = channelOne.rows[0] ? channelOne.rows[0].id : null;
 
     // 2) latest reading
     const latestResult = await pool.query(
@@ -46,8 +59,8 @@ router.get("/:device_id", async (req, res) => {
     const totalMinutes = Math.max(1, Math.ceil((now - uptimeStart.getTime()) / 60000));
     const coveredResult = await pool.query(
       `SELECT COUNT(DISTINCT date_trunc('minute', created_at))::int AS covered
-       FROM readings_log WHERE device_id = $1 AND created_at >= $2`,
-      [deviceId, uptimeStart]
+       FROM readings_log WHERE breaker_pk = $1 AND created_at >= $2`,
+      [breakerPk, uptimeStart]
     );
     const covered = coveredResult.rows[0].covered;
     const uptime_pct = covered === 0 ? null : Math.min(100, Math.round((covered / totalMinutes) * 10000) / 100);
@@ -74,8 +87,8 @@ router.get("/:device_id", async (req, res) => {
     //    they grow so it stays readable.
     const since = new Date(now - hours * 3600 * 1000);
     const firstResult = await pool.query(
-      `SELECT MIN(created_at) AS first FROM readings_log WHERE device_id = $1 AND created_at >= $2`,
-      [deviceId, since]
+      `SELECT MIN(created_at) AS first FROM readings_log WHERE breaker_pk = $1 AND created_at >= $2`,
+      [breakerPk, since]
     );
     let history = [];
     let bucket_seconds = 60;
@@ -87,9 +100,9 @@ router.get("/:device_id", async (req, res) => {
         `SELECT to_timestamp(floor(extract(epoch FROM created_at) / $2::float8) * $2::float8) AS t,
                 AVG(current)::float8 AS current
          FROM readings_log
-         WHERE device_id = $1 AND created_at >= $3 AND current IS NOT NULL
+         WHERE breaker_pk = $1 AND created_at >= $3 AND current IS NOT NULL
          GROUP BY 1 ORDER BY 1`,
-        [deviceId, bucket_seconds, since]
+        [breakerPk, bucket_seconds, since]
       );
       history = historyResult.rows;
     }
@@ -102,11 +115,12 @@ router.get("/:device_id", async (req, res) => {
       alerts: alertsResult.rows,
       history,
       bucket_seconds,
+      health: { connection: connectionStatus(last_seen, now), last_seen: last_seen ? new Date(last_seen).toISOString() : null },
       server_time: new Date(now).toISOString(),
     });
   } catch (err) {
-    console.error("Dashboard error:", err);
-    res.status(500).json({ error: "Could not load dashboard" });
+    console.error("Dashboard error:", err.code || "", err.message);
+    sendError(res, 500, "INTERNAL_ERROR", "Could not load dashboard");
   }
 });
 

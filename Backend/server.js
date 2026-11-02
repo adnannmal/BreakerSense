@@ -1,12 +1,6 @@
 require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const { initDb } = require("./db");
-const authRoutes = require("./routes/auth");
-const deviceRoutes = require("./routes/devices");
-const readingsRoutes = require("./routes/readings");
-const alertRoutes = require("./routes/alerts");
-const dashboardRoutes = require("./routes/dashboard");
+const { initDb, pruneReadingsLog } = require("./db");
+const { createApp } = require("./app");
 
 // Fail loudly at startup instead of 500-ing on the first login.
 for (const name of ["DATABASE_URL", "JWT_SECRET"]) {
@@ -15,32 +9,24 @@ for (const name of ["DATABASE_URL", "JWT_SECRET"]) {
     process.exit(1);
   }
 }
+if (process.env.JWT_SECRET.length < 32) {
+  console.warn("JWT_SECRET is shorter than 32 characters; use a long random value in production.");
+}
 
-const app = express();
-
-// CORS_ORIGIN (optional): comma-separated list of allowed frontend origins, e.g.
-// https://breakersense-production.up.railway.app. Unset = allow any origin (fine for a demo).
-const corsOrigins = (process.env.CORS_ORIGIN || "").split(",").map((o) => o.trim().replace(/\/$/, "")).filter(Boolean);
-app.use(cors(corsOrigins.length ? { origin: corsOrigins } : undefined));
-app.use(express.json());
-
-app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "Smart breaker API is running" });
-});
-
-app.get("/health", (req, res) => res.json({ status: "ok" }));
-
-app.use("/api/auth", authRoutes);
-app.use("/api/devices", deviceRoutes);
-app.use("/readings", readingsRoutes);
-app.use("/alerts", alertRoutes);
-app.use("/api/dashboard", dashboardRoutes); // one-call dashboard data for the frontend
-
+const app = createApp();
 const PORT = process.env.PORT || 4000;
 
 initDb()
   .then(() => {
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+    // Retention: drop history older than READINGS_RETENTION_DAYS (default 7) once an hour.
+    const prune = () =>
+      pruneReadingsLog()
+        .then((n) => n && console.log(`Pruned ${n} old readings`))
+        .catch((e) => console.error("Log prune error:", e.message));
+    prune();
+    setInterval(prune, 60 * 60 * 1000).unref();
   })
   .catch((err) => {
     console.error("Failed to initialize database:", err);
