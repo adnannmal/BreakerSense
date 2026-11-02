@@ -1,25 +1,33 @@
 // Fake ESP32 for demoing the dashboard without hardware.
 //
-//   node scripts/simulate-device.js <device_id> [mode] [backend_url]
+//   DEVICE_API_KEY=<key> node simulate-device.js <device_id> [mode] [backend_url]
 //
 //   mode:  normal   (default) steady readings, everything in range
 //          warm     temperature creeps up -> "Watch" on the Temperature card
 //          overload current jumps above the breaker's capacity -> alert appears
 //
 // Examples:
-//   node scripts/simulate-device.js esp32-1
-//   node scripts/simulate-device.js esp32-1 overload
-//   node scripts/simulate-device.js esp32-1 normal https://your-backend.up.railway.app
+//   node simulate-device.js esp32-1
+//   node simulate-device.js esp32-1 overload
+//   node simulate-device.js esp32-1 normal https://your-backend.up.railway.app
 //
 // The device_id must already be added in the dashboard ("Add breaker") — /readings rejects unknown IDs.
+// DEVICE_API_KEY is the bk_... key shown once when the device was registered (or its key was rotated).
+// It's read from the environment rather than the command line so it doesn't end up in shell history.
 // Needs Node 18+ (uses the built-in fetch).
 
 const deviceId = process.argv[2];
 const mode = process.argv[3] || "normal";
 const baseUrl = (process.argv[4] || process.env.API_URL || "http://localhost:4000").replace(/\/$/, "");
+const apiKey = process.env.DEVICE_API_KEY;
 
 if (!deviceId) {
-  console.error("Usage: node scripts/simulate-device.js <device_id> [normal|warm|overload] [backend_url]");
+  console.error("Usage: DEVICE_API_KEY=<key> node simulate-device.js <device_id> [normal|warm|overload] [backend_url]");
+  process.exit(1);
+}
+
+if (!apiKey) {
+  console.error("Set DEVICE_API_KEY to the device's bk_... key (POST /readings requires the X-API-Key header).");
   process.exit(1);
 }
 
@@ -52,7 +60,7 @@ async function send() {
   try {
     const res = await fetch(`${baseUrl}/readings`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
       body: JSON.stringify(reading),
     });
     const body = await res.json();

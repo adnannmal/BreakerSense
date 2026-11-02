@@ -81,6 +81,7 @@ unsigned long lastWifiRetry = 0;
 // PZEM measurement
 // --------------------
 
+<<<<<<< HEAD
 struct MeterReading {
     float voltage;
     float current;
@@ -89,6 +90,13 @@ struct MeterReading {
     float frequency;
     float powerFactor;
 };
+=======
+// Function declarations
+void handleSerialCommands();
+void turnContactorOn();
+void turnContactorOff();
+void checkRemoteContactorCommand();
+>>>>>>> 05413b24a96caee16fce7ab82668e9a0fe326311
 
 // =====================================================
 // GPIO OUTPUT CONTROL
@@ -333,10 +341,23 @@ int postToBackend(
         "application/json"
     );
 
+<<<<<<< HEAD
     http.addHeader(
         "X-API-Key",
         DEVICE_API_KEY
     );
+=======
+    // Simulated values only, NOT sensor measurements.
+    String payload = "{";
+    payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
+    payload += "\"voltage\":120.4,";
+    payload += "\"current\":0.5,";
+    payload += "\"power\":60.2,";
+    payload += "\"status\":\"" + String(contactorOn ? "ON" : "OFF") + "\"";
+    payload += "}";
+
+    Serial.println("Sending simulated reading to Railway...");
+>>>>>>> 05413b24a96caee16fce7ab82668e9a0fe326311
 
     int responseCode = http.POST(payload);
 
@@ -349,9 +370,56 @@ int postToBackend(
     return responseCode;
 }
 
+<<<<<<< HEAD
 // =====================================================
 // SEND LIVE TELEMETRY
 // =====================================================
+=======
+void checkRemoteContactorCommand() {
+    if (WiFi.status() != WL_CONNECTED || time(nullptr) < 1700000000) {
+        return;
+    }
+
+    WiFiClientSecure client;
+    client.setCACert(RAILWAY_ROOT_CA);
+
+    HTTPClient http;
+    const char* url =
+        "https://breaker-backend-production-bb10.up.railway.app/readings/command";
+
+    if (!http.begin(client, url)) {
+        Serial.println("Failed to initialize command check.");
+        return;
+    }
+
+    http.setTimeout(10000);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-API-Key", DEVICE_API_KEY);
+    const String payload = "{\"device_id\":\"" + String(DEVICE_ID) + "\"}";
+    const int responseCode = http.POST(payload);
+
+    if (responseCode == 200) {
+        const String response = http.getString();
+        if (response.indexOf("\"requested_status\":\"ON\"") >= 0 && !contactorOn) {
+            turnContactorOn();
+        } else if (response.indexOf("\"requested_status\":\"OFF\"") >= 0 && contactorOn) {
+            turnContactorOff();
+        }
+    } else if (responseCode > 0) {
+        Serial.print("Command check rejected: ");
+        Serial.println(http.getString());
+    } else {
+        Serial.print("Command check failed: ");
+        Serial.println(http.errorToString(responseCode));
+    }
+
+    http.end();
+}
+
+void setup() {
+  Serial.begin(9600);
+  connectWiFi(); // Connect to Wi-Fi
+>>>>>>> 05413b24a96caee16fce7ab82668e9a0fe326311
 
 void sendReading(const MeterReading &r) {
     JsonDocument doc;
@@ -384,6 +452,7 @@ void sendReading(const MeterReading &r) {
     Serial.print("[API] HTTP response: ");
     Serial.println(code);
 
+<<<<<<< HEAD
     if (code == 200) {
         Serial.println(
             "[API] Live reading uploaded."
@@ -395,6 +464,65 @@ void sendReading(const MeterReading &r) {
         Serial.println(
             "[API] Upload failed."
         );
+=======
+          Serial.println("NTP synchronization successful!");
+          Serial.print("Current UTC time: ");
+          Serial.println(asctime(&timeinfo));
+
+          testRailwayHTTPS();
+      } else {
+          Serial.println("NTP failed after 30 seconds.");
+          Serial.println("Check internet access and UDP port 123.");
+      }
+  }
+
+  
+  pinMode(MOSFET_PIN, OUTPUT); // Set MOSFET_PIN as output
+  digitalWrite(MOSFET_PIN, LOW); // Ensure the contactor is off initially
+
+  Wire.begin(21, 22); // Initialize I2C with SDA on GPIO21 and SCL on GPIO22
+
+
+  Serial.println();
+  Serial.println("Smart Breaker Basic Test Started");
+  Serial.println("Type ON or OFF");
+  Serial.println();
+}
+
+
+void loop() {
+    // Preserve manual contactor commands.
+    handleSerialCommands();
+
+    static unsigned long lastUpdate = 0;
+
+    if (millis() - lastUpdate >= UPDATE_INTERVAL) {
+        lastUpdate = millis();
+
+        checkRemoteContactorCommand();
+
+        // Existing sensor functions.
+        float voltage = readVoltageRMS();
+        float adsCurrent = readADSCurrentRMS();
+
+        Serial.println("----- Readings -----");
+
+        Serial.print("Contactor: ");
+        Serial.println(contactorOn ? "ON" : "OFF");
+
+        Serial.print("Voltage Sensor GPIO35: ");
+        Serial.println(voltage, 2);
+        Serial.println(" V");
+
+        Serial.print("ADS1115 CT A0/A1: ");
+        Serial.print(adsCurrent, 4);
+        Serial.println(" A");
+
+        // Network test only — simulated values.
+        sendTestReading();
+
+        Serial.println("--------------------");
+>>>>>>> 05413b24a96caee16fce7ab82668e9a0fe326311
     }
 }
 

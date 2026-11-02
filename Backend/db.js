@@ -61,6 +61,8 @@ async function initDb() {
   // "a column named OFF", so the ALTER failed and initDb() crashed the server on startup.
   // String literals use single quotes.
   await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'OFF';`);
+  await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS requested_status TEXT;`);
+  await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS command_expires_at TIMESTAMPTZ;`);
 
   // NEW — fields the frontend's "Add breaker" form collects / the sensor cards show
   await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS location TEXT;`);          // "Panel A / Line 01"

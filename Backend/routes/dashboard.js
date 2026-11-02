@@ -24,6 +24,8 @@ router.get("/:device_id", async (req, res) => {
     // 1) the device (also enforces "only your own devices")
     const deviceResult = await pool.query(
       `SELECT device_id, nickname, location, capacity_amps, status,
+              CASE WHEN command_expires_at > NOW() THEN requested_status ELSE NULL END AS requested_status,
+              CASE WHEN command_expires_at > NOW() THEN command_expires_at ELSE NULL END AS command_expires_at,
               voltage_threshold, current_threshold, power_threshold, temperature_threshold, created_at
        FROM devices WHERE device_id = $1 AND user_id = $2`,
       [deviceId, req.userId]

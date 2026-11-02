@@ -2,6 +2,7 @@ const express = require("express");
 const { pool } = require("../db");
 const { requireAuth } = require("../middleware/auth");
 const { requireDeviceAuth } = require("../middleware/deviceAuth");
+const { parseReading } = require("../validation/readings");
 
 const router = express.Router();
 
@@ -15,31 +16,46 @@ function guessAppliances(excessWatts) {
 }
 */
 
-// Which metrics the dashboard shows + may raise alerts on. Power is still stored from the
-// ESP32's payload, but the frontend doesn't display it, so its threshold check is parked below.
+// Which metrics may raise alerts on. Power telemetry is stored and displayed by the dashboard,
+// but power-threshold alerts are intentionally disabled.
 const METRICS = [
   { key: "current",     label: "Current",     unit: "A",  thresholdCol: "current_threshold" },
   { key: "voltage",     label: "Voltage",     unit: "V",  thresholdCol: "voltage_threshold" },
   { key: "temperature", label: "Temperature", unit: "°C", thresholdCol: "temperature_threshold" },
 ];
 
-function toNumberOrNull(v) {
-  if (v === undefined || v === null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
+// POST /readings/command — authenticated device polls for a pending ON/OFF request.
+router.post("/command", requireDeviceAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT CASE WHEN command_expires_at > NOW() THEN requested_status ELSE NULL END AS requested_status,
+              CASE WHEN command_expires_at > NOW() THEN command_expires_at ELSE NULL END AS command_expires_at
+       FROM devices WHERE device_id = $1`,
+      [req.deviceId]
+    );
+    return res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Fetch breaker command error:", error);
+    return res.status(500).json({ error: "Could not fetch breaker command" });
+  }
+});
 
 // POST /readings — the ESP32 calls this, no login required (devices don't
 // have accounts, people do). It only succeeds if device_id was already
 // registered to some user via POST /api/devices — that's what ties a
 // reading back to the right account.
 // Body example: { "device_id": "esp32-1", "voltage": 120.5, "current": 3.2, "power": 385.6, "temperature": 41.5 }
-// (temperature is optional)
-router.post("/", requireDeviceAuth, async (req, res) => {  const device_id = req.deviceId;
-  const voltage = toNumberOrNull(req.body.voltage);
-  const current = toNumberOrNull(req.body.current);
-  const power = toNumberOrNull(req.body.power);
-  const temperature = toNumberOrNull(req.body.temperature);
+// (each measurement is optional, but at least one is required; non-numeric or
+//  out-of-range values are rejected with 400 and nothing is stored)
+router.post("/", requireDeviceAuth, async (req, res) => {
+  const device_id = req.deviceId;
+
+  const parsed = parseReading(req.body);
+  if (parsed.error) {
+    return res.status(400).json({ error: parsed.error, ...(parsed.field && { field: parsed.field }) });
+  }
+  const { voltage, current, power, temperature } = parsed.values;
+  const reportedStatus = parsed.status;
 
   if (!device_id) {
     return res.status(400).json({ error: "device_id is required" });
@@ -55,6 +71,21 @@ router.post("/", requireDeviceAuth, async (req, res) => {  const device_id = req
       return res.status(404).json({ error: "This device_id hasn't been registered to an account yet" });
     }
     const device = owned.rows[0];
+
+    if (reportedStatus) {
+      await pool.query(
+        `UPDATE devices
+         SET status = $1,
+             requested_status = CASE WHEN requested_status = $1 THEN NULL ELSE requested_status END,
+             command_expires_at = CASE WHEN requested_status = $1 THEN NULL ELSE command_expires_at END
+         WHERE device_id = $2`,
+        [reportedStatus, device_id]
+      );
+    }
+
+    if (Object.values(parsed.values).every((value) => value === null)) {
+      return res.status(200).json({ device_id, status: reportedStatus });
+    }
 
     // 1) latest value (overwritten each time)
     const result = await pool.query(
@@ -117,7 +148,7 @@ router.post("/", requireDeviceAuth, async (req, res) => {  const device_id = req
       }
     }
 
-    /* COMMENTED OUT — the dashboard doesn't show power, so power alerts are parked.
+    /* COMMENTED OUT — power-threshold alerts are intentionally disabled.
     if (device.power_threshold != null && power > device.power_threshold) {
       const excess = power - device.power_threshold;
       const guesses = guessAppliances(excess);
