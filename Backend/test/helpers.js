@@ -52,6 +52,7 @@ async function seedLegacyDatabase(url) {
 
 async function startTestEnvironment() {
   let embedded = null;
+  let dataDir = null;
   let url = process.env.TEST_DATABASE_URL;
 
   if (url) {
@@ -65,13 +66,15 @@ async function startTestEnvironment() {
   } else {
     const { default: EmbeddedPostgres } = await import("embedded-postgres");
     const port = await freePort();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bs-pg-"));
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "bs-pg-"));
     embedded = new EmbeddedPostgres({
-      databaseDir: dir,
+      databaseDir: dataDir,
       user: "postgres",
       password: "test-only-password",
       port,
-      persistent: false,
+      // We delete the folder ourselves in stop(): on Windows it can stay locked for a moment
+      // after Postgres exits, and the library's own delete fails the run with EBUSY.
+      persistent: true,
       onLog: () => {},
       onError: () => {},
     });
@@ -122,6 +125,14 @@ async function startTestEnvironment() {
     await new Promise((resolve) => server.close(resolve));
     await pool.end();
     if (embedded) await embedded.stop();
+    if (dataDir) {
+      try {
+        fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+      } catch (err) {
+        // A leftover temp folder shouldn't fail a run whose tests passed.
+        console.warn(`Could not delete temporary test database ${dataDir}: ${err.code}`);
+      }
+    }
   }
 
   return { base, request, pool, stop };
