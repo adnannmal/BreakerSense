@@ -3,9 +3,25 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { parseReading } = require("../validation/readings");
 
+// Every measurement the API knows about, all missing.
+const NONE = { voltage: null, current: null, power: null, apparent_power: null, temperature: null, power_factor: null, frequency: null, energy_kwh: null };
+
 test("accepts the currently verified ESP32 payload", () => {
   const r = parseReading({ device_id: "esp32-1", voltage: 120.4, current: 0.5, power: 60.2 });
-  assert.deepEqual(r.values, { voltage: 120.4, current: 0.5, power: 60.2, temperature: null });
+  assert.deepEqual(r.values, { ...NONE, voltage: 120.4, current: 0.5, power: 60.2 });
+});
+
+test("accepts the full PZEM-004T payload", () => {
+  const r = parseReading({ voltage: 120.4, current: 0.509, power: 61.3, power_factor: 1.0, frequency: 60.0, energy_kwh: 0.004 });
+  assert.deepEqual(r.values, { ...NONE, voltage: 120.4, current: 0.509, power: 61.3, power_factor: 1.0, frequency: 60.0, energy_kwh: 0.004 });
+});
+
+test("rejects impossible PZEM extras", () => {
+  assert.equal(parseReading({ voltage: 120, power_factor: 1.2 }).field, "power_factor");
+  assert.equal(parseReading({ voltage: 120, power_factor: -0.1 }).field, "power_factor");
+  assert.equal(parseReading({ voltage: 120, frequency: 5 }).field, "frequency");
+  assert.equal(parseReading({ voltage: 120, energy_kwh: -1 }).field, "energy_kwh");
+  assert.equal(parseReading({ voltage: 120, power_factor: "NaN" }).field, "power_factor");
 });
 
 test("accepts numeric strings", () => {
@@ -14,7 +30,7 @@ test("accepts numeric strings", () => {
 
 test("contactor OFF: ~120 V with 0 A / 0 W is valid", () => {
   const r = parseReading({ voltage: 120.1, current: 0, power: 0 });
-  assert.deepEqual(r.values, { voltage: 120.1, current: 0, power: 0, temperature: null });
+  assert.deepEqual(r.values, { ...NONE, voltage: 120.1, current: 0, power: 0 });
 });
 
 test("rejects non-numeric values instead of storing null", () => {
@@ -38,12 +54,7 @@ test("negative temperature is allowed within range", () => {
 
 test("accepts a contactor state report without measurements", () => {
   const reading = parseReading({ status: "OFF" });
-  assert.deepEqual(reading.values, {
-    voltage: null,
-    current: null,
-    power: null,
-    temperature: null,
-  });
+  assert.deepEqual(reading.values, NONE);
   assert.equal(reading.status, "OFF");
   assert.equal(parseReading({ status: "TRIPPED" }).field, "status");
 });
@@ -61,4 +72,22 @@ test("limits can be changed with env variables", () => {
   } finally {
     delete process.env.READING_MAX_VOLTAGE;
   }
+});
+
+test("October contract fields: contactor_state, sensor_status, breaker_id, apparent_power", () => {
+  const r = parseReading({ controller_id: "esp32-001", breaker_id: "breaker-001", voltage: 120.4, current: 0.509, power: 61.3, apparent_power: 61.28, contactor_state: "ON", sensor_status: "online" });
+  assert.equal(r.status, "ON");
+  assert.equal(r.sensorStatus, "online");
+  assert.equal(r.breakerId, "breaker-001");
+  assert.equal(r.values.apparent_power, 61.28);
+  assert.equal(parseReading({ status: "ON", contactor_state: "OFF" }).field, "contactor_state");
+  assert.equal(parseReading({ sensor_status: "broken" }).field, "sensor_status");
+});
+
+test("PZEM failure report: sensor_status error with no numbers is accepted, with numbers is rejected", () => {
+  const ok = parseReading({ device_id: "esp32-1", sensor_status: "error", status: "ON" });
+  assert.equal(ok.error, undefined);
+  assert.equal(ok.sensorStatus, "error");
+  assert.deepEqual(ok.values, NONE);
+  assert.equal(parseReading({ sensor_status: "error", voltage: 0, current: 0 }).field, "sensor_status");
 });
