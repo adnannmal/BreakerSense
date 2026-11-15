@@ -7,7 +7,10 @@ import {
 
 import LoginPage from "./pages/LoginPage";
 import CreateAccountPage from "./pages/CreateAccountPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import SuccessPage from "./pages/SuccessPage";
+import AccountPage from "./pages/AccountPage";
 
 function ProtectedRoute({ children }) {
   const token = sessionStorage.getItem("token");
@@ -24,6 +27,8 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route
           path="/create-account"
@@ -37,6 +42,14 @@ function App() {
               <SuccessPage />
             </ProtectedRoute>
           } 
+        />
+        <Route
+          path="/account"
+          element={
+            <ProtectedRoute>
+              <AccountPage />
+            </ProtectedRoute>
+          }
         />
       </Routes>
     </BrowserRouter>

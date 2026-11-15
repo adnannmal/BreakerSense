@@ -1,5 +1,6 @@
 
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   CategoryScale,
   Chart as ChartJS,
@@ -390,6 +391,9 @@ function SuccessPage() {
           <h1>System overview</h1>
         </div>
         <div className="dashboard-header__actions">
+          <Link className="account-link" to="/account">
+            Account
+          </Link>
           {devices.length > 1 && (
             <select
               aria-label="Select breaker"

@@ -33,6 +33,7 @@
 }
 
 .add-breaker-button,
+.account-link,
 .submit-button,
 .cancel-button,
 .modal-close {
@@ -52,6 +53,22 @@
   font-size: 13px;
   font-weight: 700;
 }
+
+.account-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 16px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--ink);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.account-link:hover { border-color: #1b9586; color: #27645e; }
 
 .add-breaker-button:hover,
 .submit-button:hover { background: #27645e; }

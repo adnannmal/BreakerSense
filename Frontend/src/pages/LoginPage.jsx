@@ -69,12 +69,16 @@ function LoginPage() {
           )}
 
           <button
-          style={styles.button}
-          type="submit"
-          disabled={loading}
-        >
-          {loading ? "Signing In..." : "Sign In"}
-        </button>
+            style={styles.button}
+            type="submit"
+            disabled={loading}
+          >
+            {loading ? "Signing In..." : "Sign In"}
+          </button>
+
+          <p style={styles.text}>
+            <Link to="/forgot-password">Forgot password?</Link>
+          </p>
 
           <p style={styles.text}>
             Don’t have an account?{" "}
