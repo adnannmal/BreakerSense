@@ -37,7 +37,7 @@ router.get("/:device_id", async (req, res) => {
 
     // 2) latest reading
     const latestResult = await pool.query(
-      `SELECT voltage, current, power, temperature, updated_at FROM readings WHERE device_id = $1`,
+      `SELECT voltage, current, power, temperature, apparent_power, power_factor, frequency, energy_kwh, updated_at FROM readings WHERE device_id = $1`,
       [deviceId]
     );
     const latest = latestResult.rows[0] || null;
@@ -48,7 +48,7 @@ router.get("/:device_id", async (req, res) => {
     const totalMinutes = Math.max(1, Math.ceil((now - uptimeStart.getTime()) / 60000));
     const coveredResult = await pool.query(
       `SELECT COUNT(DISTINCT date_trunc('minute', created_at))::int AS covered
-       FROM readings_log WHERE device_id = $1 AND created_at >= $2`,
+       FROM readings_log WHERE breaker_id = $1 AND created_at >= $2`,
       [deviceId, uptimeStart]
     );
     const covered = coveredResult.rows[0].covered;
@@ -57,7 +57,7 @@ router.get("/:device_id", async (req, res) => {
     // 4) last event in the last 24h
     const lastEventResult = await pool.query(
       `SELECT title, message, severity, created_at FROM alerts
-       WHERE device_id = $1 AND created_at >= NOW() - INTERVAL '24 hours'
+       WHERE breaker_id = $1 AND created_at >= NOW() - INTERVAL '24 hours'
        ORDER BY created_at DESC LIMIT 1`,
       [deviceId]
     );
@@ -66,7 +66,7 @@ router.get("/:device_id", async (req, res) => {
     // 5) open alerts
     const alertsResult = await pool.query(
       `SELECT id, title, message, severity, metric, created_at FROM alerts
-       WHERE device_id = $1 AND resolved = FALSE
+       WHERE breaker_id = $1 AND resolved = FALSE
        ORDER BY created_at DESC LIMIT 20`,
       [deviceId]
     );
@@ -76,7 +76,7 @@ router.get("/:device_id", async (req, res) => {
     //    they grow so it stays readable.
     const since = new Date(now - hours * 3600 * 1000);
     const firstResult = await pool.query(
-      `SELECT MIN(created_at) AS first FROM readings_log WHERE device_id = $1 AND created_at >= $2`,
+      `SELECT MIN(created_at) AS first FROM readings_log WHERE breaker_id = $1 AND created_at >= $2`,
       [deviceId, since]
     );
     let history = [];
@@ -89,7 +89,7 @@ router.get("/:device_id", async (req, res) => {
         `SELECT to_timestamp(floor(extract(epoch FROM created_at) / $2::float8) * $2::float8) AS t,
                 AVG(current)::float8 AS current
          FROM readings_log
-         WHERE device_id = $1 AND created_at >= $3 AND current IS NOT NULL
+         WHERE breaker_id = $1 AND created_at >= $3 AND current IS NOT NULL
          GROUP BY 1 ORDER BY 1`,
         [deviceId, bucket_seconds, since]
       );
@@ -107,7 +107,7 @@ router.get("/:device_id", async (req, res) => {
       server_time: new Date(now).toISOString(),
     });
   } catch (err) {
-    console.error("Dashboard error:", err);
+    console.error("Dashboard error:", err.message);
     res.status(500).json({ error: "Could not load dashboard" });
   }
 });

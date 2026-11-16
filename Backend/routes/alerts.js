@@ -12,7 +12,11 @@ router.get("/", async (req, res) => {
     let deviceFilter = "";
     if (req.query.device_id) {
       params.push(req.query.device_id);
-      deviceFilter = "AND a.device_id = $2";
+      deviceFilter = `AND a.device_id = $${params.length}`;
+    }
+    if (req.query.breaker_id) {
+      params.push(req.query.breaker_id);
+      deviceFilter += ` AND a.breaker_id = $${params.length}`;
     }
     const result = await pool.query(
       `SELECT a.*, d.nickname FROM alerts a
@@ -23,7 +27,7 @@ router.get("/", async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    console.error("Fetch alerts error:", err);
+    console.error("Fetch alerts error:", err.message);
     res.status(500).json({ error: "Could not load alerts" });
   }
 });

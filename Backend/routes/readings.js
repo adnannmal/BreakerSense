@@ -3,28 +3,12 @@ const { pool } = require("../db");
 const { requireAuth } = require("../middleware/auth");
 const { requireDeviceAuth } = require("../middleware/deviceAuth");
 const { parseReading } = require("../validation/readings");
+const { recordReport } = require("../services/ingest");
 
 const router = express.Router();
 
-/* COMMENTED OUT — the dashboard has no "possible cause" / appliance guess UI yet.
-   (It was also a latent crash: it's declared as guessApplicances but was called as
-   guessAppliances, which would throw a ReferenceError the first time power went over its limit.)
-
-// Temp for the AI
-function guessAppliances(excessWatts) {
-  return [];
-}
-*/
-
-// Which metrics may raise alerts on. Power telemetry is stored and displayed by the dashboard,
-// but power-threshold alerts are intentionally disabled.
-const METRICS = [
-  { key: "current",     label: "Current",     unit: "A",  thresholdCol: "current_threshold" },
-  { key: "voltage",     label: "Voltage",     unit: "V",  thresholdCol: "voltage_threshold" },
-  { key: "temperature", label: "Temperature", unit: "°C", thresholdCol: "temperature_threshold" },
-];
-
-// POST /readings/command — authenticated device polls for a pending ON/OFF request.
+// POST /readings/command — legacy firmware polls for a pending ON/OFF request on channel 1.
+// (New firmware should use POST /api/device/v1/commands/poll, which returns command IDs.)
 router.post("/command", requireDeviceAuth, async (req, res) => {
   try {
     const result = await pool.query(
@@ -33,139 +17,77 @@ router.post("/command", requireDeviceAuth, async (req, res) => {
        FROM devices WHERE device_id = $1`,
       [req.deviceId]
     );
+    await pool.query(
+      `UPDATE commands SET status = 'DELIVERED', delivered_at = COALESCE(delivered_at, NOW()), delivery_count = delivery_count + 1
+       WHERE breaker_id = $1 AND controller_id = $1 AND status IN ('QUEUED', 'DELIVERED') AND expires_at > NOW()`,
+      [req.deviceId]
+    );
     return res.json(result.rows[0]);
   } catch (error) {
-    console.error("Fetch breaker command error:", error);
+    console.error("Fetch breaker command error:", error.message);
     return res.status(500).json({ error: "Could not fetch breaker command" });
   }
 });
 
-// POST /readings — the ESP32 calls this, no login required (devices don't
-// have accounts, people do). It only succeeds if device_id was already
-// registered to some user via POST /api/devices — that's what ties a
-// reading back to the right account.
-// Body example: { "device_id": "esp32-1", "voltage": 120.5, "current": 3.2, "power": 385.6, "temperature": 41.5 }
-// (each measurement is optional, but at least one is required; non-numeric or
-//  out-of-range values are rejected with 400 and nothing is stored)
+// POST /readings — ESP32 telemetry (legacy path, still supported).
+//
+// Body (all measurements optional, at least one measurement or a status is required):
+//   { "device_id": "esp32-1",            // or "controller_id"
+//     "breaker_id": "esp32-1-ch2",       // optional; default = the controller's channel-1 breaker
+//     "voltage": 120.4, "current": 0.509, "power": 61.3, "apparent_power": 61.28,
+//     "energy_kwh": 0.004, "frequency": 60.0, "power_factor": 1.0, "temperature": null,
+//     "status": "ON",                    // or "contactor_state" (reported GPIO state, ON|OFF)
+//     "sensor_status": "online" }        // "error"/"offline" reports must not carry numbers
+//
+// The X-API-Key must belong to device_id, and breaker_id must be a channel OF that controller.
 router.post("/", requireDeviceAuth, async (req, res) => {
-  const device_id = req.deviceId;
-
   const parsed = parseReading(req.body);
   if (parsed.error) {
     return res.status(400).json({ error: parsed.error, ...(parsed.field && { field: parsed.field }) });
   }
-  const { voltage, current, power, temperature } = parsed.values;
-  const reportedStatus = parsed.status;
-
-  if (!device_id) {
-    return res.status(400).json({ error: "device_id is required" });
-  }
 
   try {
-    const owned = await pool.query(
-      `SELECT device_id, nickname, voltage_threshold, current_threshold, power_threshold, temperature_threshold
-       FROM devices WHERE device_id = $1`,
-      [device_id]
-    );
-    if (owned.rows.length === 0) {
-      return res.status(404).json({ error: "This device_id hasn't been registered to an account yet" });
-    }
-    const device = owned.rows[0];
+    const breakerResult = parsed.breakerId
+      ? await pool.query(`SELECT * FROM breakers WHERE breaker_id = $1`, [parsed.breakerId])
+      : await pool.query(`SELECT * FROM breakers WHERE controller_id = $1 AND channel_number = 1`, [req.deviceId]);
+    const breaker = breakerResult.rows[0];
 
-    if (reportedStatus) {
-      await pool.query(
-        `UPDATE devices
-         SET status = $1,
-             requested_status = CASE WHEN requested_status = $1 THEN NULL ELSE requested_status END,
-             command_expires_at = CASE WHEN requested_status = $1 THEN NULL ELSE command_expires_at END
-         WHERE device_id = $2`,
-        [reportedStatus, device_id]
-      );
+    if (!breaker) {
+      if (parsed.breakerId) return res.status(404).json({ error: "Unknown breaker_id", code: "BREAKER_NOT_FOUND" });
+      return res.status(404).json({ error: "This device has no channel-1 breaker registered", code: "CHANNEL_NOT_ASSIGNED" });
+    }
+    if (breaker.controller_id !== req.deviceId) {
+      // Authenticated controller tried to write another controller's breaker.
+      return res.status(403).json({ error: "breaker_id does not belong to this device", code: "BREAKER_NOT_ON_CONTROLLER" });
     }
 
-    if (Object.values(parsed.values).every((value) => value === null)) {
-      return res.status(200).json({ device_id, status: reportedStatus });
+    const out = await recordReport(pool, {
+      breaker,
+      values: parsed.values,
+      contactorState: parsed.status,
+      sensorStatus: parsed.sensorStatus,
+      source: "legacy",
+    });
+
+    if (!out.stored) {
+      return res.status(200).json({
+        device_id: req.deviceId,
+        breaker_id: breaker.breaker_id,
+        status: parsed.status,
+        sensor_status: out.sensor_status,
+        stored: false,
+      });
     }
-
-    // 1) latest value (overwritten each time)
-    const result = await pool.query(
-      `INSERT INTO readings (device_id, voltage, current, power, temperature, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT (device_id)
-       DO UPDATE SET voltage = $2, current = $3, power = $4, temperature = $5, updated_at = NOW()
-       RETURNING *`,
-      [device_id, voltage, current, power, temperature]
-    );
-
-    // 2) history (appended every time) — feeds the trend chart + uptime
-    await pool.query(
-      `INSERT INTO readings_log (device_id, voltage, current, power, temperature) VALUES ($1, $2, $3, $4, $5)`,
-      [device_id, voltage, current, power, temperature]
-    );
-    // keep the log from growing forever: occasionally drop anything older than 7 days
-    if (Math.random() < 0.01) {
-      pool
-        .query(`DELETE FROM readings_log WHERE created_at < NOW() - INTERVAL '7 days'`)
-        .catch((e) => console.error("Log prune error:", e));
-    }
-
-    // 3) thresholds -> alerts
-    const values = { current, voltage, temperature };
-    const label = device.nickname || device_id;
-
-    for (const m of METRICS) {
-      const value = values[m.key];
-      const limit = device[m.thresholdCol];
-      if (value === null || limit === null || limit === undefined) continue;
-
-      if (value > limit) {
-        // Only one open alert per device+metric (otherwise a sensor stuck over its limit
-        // would insert a new alert on every single POST).
-        const open = await pool.query(
-          `SELECT id FROM alerts WHERE device_id = $1 AND metric = $2 AND resolved = FALSE LIMIT 1`,
-          [device_id, m.key]
-        );
-        if (open.rows.length === 0) {
-          const severity = value >= limit * 1.2 ? "High" : "Medium";
-          await pool.query(
-            `INSERT INTO alerts (device_id, metric, title, message, severity) VALUES ($1, $2, $3, $4, $5)`,
-            [
-              device_id,
-              m.key,
-              `${m.label} above threshold`,
-              `${label} reported ${value}${m.unit}, over its ${limit}${m.unit} limit.`,
-              severity,
-            ]
-          );
-        }
-      } else {
-        // Back within limits -> the alert no longer "needs attention".
-        // (The history still shows up as the dashboard's "Last event".)
-        await pool.query(
-          `UPDATE alerts SET resolved = TRUE WHERE device_id = $1 AND metric = $2 AND resolved = FALSE`,
-          [device_id, m.key]
-        );
-      }
-    }
-
-    /* COMMENTED OUT — power-threshold alerts are intentionally disabled.
-    if (device.power_threshold != null && power > device.power_threshold) {
-      const excess = power - device.power_threshold;
-      const guesses = guessAppliances(excess);
-      let message = `${device_id} power ${power}W is over its ${device.power_threshold}W limit.`;
-      if (guesses.length > 0) message += ` Possible cause: ${guesses.join(" or ")}.`;
-      await pool.query("INSERT INTO alerts (device_id, message) VALUES ($1, $2)", [device_id, message]);
-    }
-    */
-
-    res.status(200).json(result.rows[0]);
+    // Same shape as before (the `readings` row) for channel 1, plus breaker_id.
+    const row = out.legacyRow || { device_id: req.deviceId, ...parsed.values, updated_at: out.measured_at };
+    return res.status(200).json({ ...row, breaker_id: breaker.breaker_id, stored: true, latest_updated: out.latest_updated });
   } catch (err) {
-    console.error("Insert reading error:", err);
-    res.status(500).json({ error: "Could not save reading" });
+    console.error("Insert reading error:", err.message);
+    return res.status(500).json({ error: "Could not save reading" });
   }
 });
 
-// GET /readings — the logged-in user's devices' latest readings only
+// GET /readings — the logged-in user's devices' latest (channel-1) readings
 router.get("/", requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
@@ -177,7 +99,7 @@ router.get("/", requireAuth, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    console.error("Fetch readings error:", err);
+    console.error("Fetch readings error:", err.message);
     res.status(500).json({ error: "Could not load readings" });
   }
 });
@@ -196,7 +118,7 @@ router.get("/:device_id", requireAuth, async (req, res) => {
     }
     res.json(result.rows[0]);
   } catch (err) {
-    console.error("Fetch reading error:", err);
+    console.error("Fetch reading error:", err.message);
     res.status(500).json({ error: "Could not load reading" });
   }
 });

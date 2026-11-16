@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test --test-concurrency=1 --test-timeout=120000",
+    "test:unit": "node --test test/*.test.js",
+    "test:integration": "node --test --test-concurrency=1 --test-timeout=120000 test/integration/"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -14,5 +16,12 @@
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.12",
+    "@electric-sql/pglite-socket": "0.2.15"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

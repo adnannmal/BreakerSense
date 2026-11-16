@@ -5,6 +5,8 @@
 //   mode:  normal   (default) steady readings, everything in range
 //          warm     temperature creeps up -> "Watch" on the Temperature card
 //          overload current jumps above the breaker's capacity -> alert appears
+//          lamp | charger | fan | kettle | heater | microwave
+//                   synthetic appliance readings for testing appliance learning (see below)
 //
 // Examples:
 //   node simulate-device.js esp32-1
@@ -34,8 +36,21 @@ if (!apiKey) {
 const jitter = (amount) => (Math.random() - 0.5) * 2 * amount;
 let tick = 0;
 
+// Appliance modes (lamp, charger, fan, kettle, heater, microwave) send SYNTHETIC 120 V readings
+// with power_factor/frequency, so the appliance-learning pipeline can be tried without hardware:
+//   node scripts/ml.js record esp32-1 kettle 60 --simulated     (start the simulator when told "TURN ON")
+// Sessions recorded this way MUST use --simulated; training ignores them by default.
+const { PROFILES, sampleReading } = require("./ml/synthetic");
+const startedAt = Date.now();
+let energyKwh = 0;
+
 function makeReading() {
   tick++;
+  if (PROFILES[mode]) {
+    const r = sampleReading(PROFILES[mode], (Date.now() - startedAt) / 1000, Math.random);
+    energyKwh += (r.power * 3) / 3600 / 1000;
+    return { device_id: deviceId, ...r, energy_kwh: Number(energyKwh.toFixed(4)) };
+  }
   const voltage = 237 + jitter(2);
   let current = 15 + jitter(2.5);
   let temperature = 38 + jitter(1.5);
