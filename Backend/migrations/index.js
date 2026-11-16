@@ -1,8 +1,13 @@
-// Versioned, additive database migrations.
-//
-// Each migration runs once, inside its own transaction, and is recorded in schema_migrations.
-// A Postgres advisory lock stops two server instances from migrating at the same time.
-// Migrations never DROP tables or DELETE user data. See docs/BACKEND_CHANGES.md for rollback notes.
+
+ // Versioned, additive database migrations.
+ //
+ // Uses a BreakerSense-specific tracking table to avoid conflicts
+ // with an existing schema_migrations table.
+ //
+ // Each migration runs once, inside its own transaction.
+ // A PostgreSQL advisory lock prevents concurrent migrations.
+ //
+ // Existing application tables and user data are preserved.
 
 const MIGRATIONS = [
   require("./001_baseline"),
@@ -12,42 +17,90 @@ const MIGRATIONS = [
   require("./005_ml_appliance"),
 ];
 
-const LOCK_KEY = 4815162342; // arbitrary constant for pg_advisory_lock
+const LOCK_KEY = 4815162342;
+
+const MIGRATION_TABLE = "breakersense_schema_migrations";
 
 async function runMigrations(pool, { log = console.log } = {}) {
   const client = await pool.connect();
+
   try {
-    await client.query("SELECT pg_advisory_lock($1)", [LOCK_KEY]);
+    // Prevent multiple instances from migrating simultaneously.
+    await client.query(
+      "SELECT pg_advisory_lock($1)",
+      [LOCK_KEY]
+    );
+
+    // Create a dedicated BreakerSense migration tracking table.
     await client.query(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
+      CREATE TABLE IF NOT EXISTS breakersense_schema_migrations (
         version INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
-    const { rows } = await client.query("SELECT version FROM schema_migrations");
-    const applied = new Set(rows.map((r) => r.version));
+
+    // Find migrations that have already been applied.
+    const { rows } = await client.query(
+      "SELECT version FROM breakersense_schema_migrations"
+    );
+
+    const applied = new Set(
+      rows.map((r) => r.version)
+    );
 
     const ran = [];
-    for (const m of MIGRATIONS) {
-      if (applied.has(m.version)) continue;
-      await client.query("BEGIN");
-      try {
-        await m.up(client);
-        await client.query("INSERT INTO schema_migrations (version, name) VALUES ($1, $2)", [m.version, m.name]);
-        await client.query("COMMIT");
-      } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw new Error(`Migration ${m.version}_${m.name} failed: ${err.message}`);
+
+    // Apply any pending migrations.
+    for (const migration of MIGRATIONS) {
+      if (applied.has(migration.version)) {
+        continue;
       }
-      ran.push(`${m.version}_${m.name}`);
-      log(`Applied migration ${m.version}_${m.name}`);
+
+      await client.query("BEGIN");
+
+      try {
+        await migration.up(client);
+
+        await client.query(
+          `INSERT INTO breakersense_schema_migrations
+           (version, name)
+           VALUES ($1, $2)`,
+          [migration.version, migration.name]
+        );
+
+        await client.query("COMMIT");
+
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+
+        throw new Error(
+          `Migration ${migration.version}_${migration.name} failed: ${error.message}`
+        );
+      }
+
+      ran.push(
+        `${migration.version}_${migration.name}`
+      );
+
+      log(
+        `Applied migration ${migration.version}_${migration.name}`
+      );
     }
+
     return ran;
+
   } finally {
-    await client.query("SELECT pg_advisory_unlock($1)", [LOCK_KEY]).catch(() => {});
+    await client.query(
+      "SELECT pg_advisory_unlock($1)",
+      [LOCK_KEY]
+    ).catch(() => {});
+
     client.release();
   }
 }
 
-module.exports = { runMigrations, MIGRATIONS };
+module.exports = {
+  runMigrations,
+  MIGRATIONS,
+};

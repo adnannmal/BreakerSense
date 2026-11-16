@@ -1,87 +1,40 @@
+// BreakerSense - single-channel recovery firmware
+// Based on the clean PZEM/remote-control revision 8d0104438520.
+// This is a recovery baseline, not the proposed Sprint 3 multi-channel API.
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include <PZEM004Tv30.h>
 #include <ArduinoJson.h>
+#include <PZEM004Tv30.h>
 #include <time.h>
 #include <math.h>
+#include <cstring>
 
-#include "secrets.h"
-#include "railway_cert.h"
+#include "secrets.h"      // WIFI_SSID, WIFI_PASSWORD, DEVICE_ID, DEVICE_API_KEY
+#include "railway_cert.h" // RAILWAY_ROOT_CA
 
-// =====================================================
-// BREAKERSENSE ESP32
-//
-// Features:
-// - PZEM-004T live electrical measurements
-// - Wi-Fi and authenticated HTTPS to Railway
-// - Upload real voltage, current, and power
-// - Poll for remote ON/OFF commands
-// - Report software GPIO state to the backend
-// - Preserve manual ON/OFF/READ serial commands
-//
-// IMPORTANT:
-// GPIO25 must ONLY drive an isolated low-voltage
-// test indicator during this integration test.
-// =====================================================
+namespace {
+constexpr uint8_t MOSFET_PIN = 25;
+constexpr uint8_t PZEM_RX_PIN = 16;
+constexpr uint8_t PZEM_TX_PIN = 17;
+constexpr unsigned long UPDATE_INTERVAL_MS = 3000;
+constexpr unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 
-// --------------------
-// Hardware pins
-// --------------------
+// Safe default for recovery. ONLY consider enabling after qualified review
+// and verifying the driver on an isolated, current-limited low-voltage fixture.
+// This is a software interlock, NOT a replacement for a hardware fail-safe.
+constexpr bool ENABLE_OUTPUT_ON = false;
 
-const int MOSFET_PIN = 25;
+const char *BACKEND_URL = "https://breaker-backend-production-bb10.up.railway.app";
+PZEM004Tv30 pzem(Serial2, PZEM_RX_PIN, PZEM_TX_PIN);
 
-const int PZEM_RX_PIN = 16;
-const int PZEM_TX_PIN = 17;
-
-PZEM004Tv30 pzem(
-    Serial2,
-    PZEM_RX_PIN,
-    PZEM_TX_PIN
-);
-
-// --------------------
-// Safety configuration
-// --------------------
-
-// Leave FALSE while connected to any mains
-// contactor-control hardware.
-//
-// Change to TRUE only when GPIO25 drives a
-// verified isolated low-voltage test indicator.
-const bool ENABLE_OUTPUT_ON = true;
-
-// Software GPIO state only.
-// NOT verified physical contactor feedback.
-bool contactorOn = false;
-
-// --------------------
-// Backend configuration
-// --------------------
-
-const char* BACKEND_URL =
-    "https://breaker-backend-production-bb10.up.railway.app";
-
-// WIFI_SSID, WIFI_PASSWORD, DEVICE_ID,
-// DEVICE_API_KEY come from secrets.h.
-
-// --------------------
-// Timing
-// --------------------
-
-const unsigned long UPDATE_INTERVAL = 3000;
-const unsigned long WIFI_RETRY_INTERVAL = 10000;
-
+// Commanded GPIO state, NOT verified physical contactor position.
+bool outputCommandedOn = false;
 unsigned long lastUpdate = 0;
 unsigned long lastWifiRetry = 0;
 
-// --------------------
-// PZEM measurement
-// --------------------
-
-<<<<<<< HEAD
 struct MeterReading {
     float voltage;
     float current;
@@ -90,141 +43,61 @@ struct MeterReading {
     float frequency;
     float powerFactor;
 };
-=======
-// Function declarations
-void handleSerialCommands();
-void turnContactorOn();
-void turnContactorOff();
-void checkRemoteContactorCommand();
->>>>>>> 05413b24a96caee16fce7ab82668e9a0fe326311
 
-// =====================================================
-// GPIO OUTPUT CONTROL
-// =====================================================
-
-void turnContactorOff() {
+void commandOff() {
     digitalWrite(MOSFET_PIN, LOW);
-    contactorOn = false;
-
-    Serial.println(
-        "[GPIO] OFF command issued."
-    );
+    outputCommandedOn = false;
+    Serial.println("[OUTPUT] OFF commanded (physical feedback unverified).");
 }
 
-bool turnContactorOn() {
+bool commandOn() {
     if (!ENABLE_OUTPUT_ON) {
-        Serial.println(
-            "[SAFETY] ON blocked. "
-            "Low-voltage output test not enabled."
-        );
+        Serial.println("[SAFETY] ON blocked: output test not enabled.");
         return false;
     }
-
     digitalWrite(MOSFET_PIN, HIGH);
-    contactorOn = true;
-
-    Serial.println(
-        "[GPIO] ON command issued."
-    );
-
+    outputCommandedOn = true;
+    Serial.println("[OUTPUT] ON commanded (physical feedback unverified).");
     return true;
 }
 
-// =====================================================
-// WIFI
-// =====================================================
-
 void connectWiFi() {
-    Serial.println("[WiFi] Connecting...");
-
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-    unsigned long start = millis();
-
-    while (
-        WiFi.status() != WL_CONNECTED &&
-        millis() - start < 15000
-    ) {
-        delay(500);
-        Serial.print(".");
+    Serial.println("[WiFi] Connecting...");
+    const unsigned long started = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - started < 15000UL) {
+        delay(250);
     }
-
-    Serial.println();
-
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("[WiFi] Connected!");
-
-        Serial.print("[WiFi] IP: ");
+        Serial.print("[WiFi] Connected. IP: ");
         Serial.println(WiFi.localIP());
     } else {
-        Serial.println("[WiFi] Connection failed.");
+        Serial.println("[WiFi] Connection pending or unavailable.");
     }
 }
 
 void maintainWiFi() {
-    if (WiFi.status() == WL_CONNECTED) {
-        return;
-    }
-
-    if (
-        millis() - lastWifiRetry <
-        WIFI_RETRY_INTERVAL
-    ) {
-        return;
-    }
-
+    if (WiFi.status() == WL_CONNECTED) return;
+    if (millis() - lastWifiRetry < WIFI_RETRY_INTERVAL_MS) return;
     lastWifiRetry = millis();
-
-    Serial.println("[WiFi] Reconnecting...");
+    Serial.println("[WiFi] Retrying...");
     WiFi.reconnect();
 }
 
-// =====================================================
-// TIME SYNCHRONIZATION
-// =====================================================
-
-void setupTime() {
-    configTime(
-        0,
-        0,
-        "time.cloudflare.com",
-        "pool.ntp.org",
-        "time.google.com"
-    );
-
-    Serial.println("[NTP] Synchronizing...");
-
-    unsigned long start = millis();
-
-    while (
-        time(nullptr) < 1700000000 &&
-        millis() - start < 15000
-    ) {
-        delay(500);
+void setupClock() {
+    configTime(0, 0, "time.cloudflare.com", "pool.ntp.org", "time.google.com");
+    const unsigned long started = millis();
+    while (time(nullptr) < 1700000000 && millis() - started < 15000UL) {
+        delay(250);
     }
-
-    if (time(nullptr) >= 1700000000) {
-        Serial.println(
-            "[NTP] Time synchronized."
-        );
-    } else {
-        Serial.println(
-            "[NTP] No valid time yet."
-        );
-    }
+    Serial.println(time(nullptr) >= 1700000000 ?
+                   "[NTP] Time synchronized." : "[NTP] No valid time yet.");
 }
 
 bool networkReady() {
-    return (
-        WiFi.status() == WL_CONNECTED &&
-        time(nullptr) >= 1700000000
-    );
+    return WiFi.status() == WL_CONNECTED && time(nullptr) >= 1700000000;
 }
-
-// =====================================================
-// PZEM LIVE READINGS
-// =====================================================
 
 bool readPZEM(MeterReading &r) {
     r.voltage = pzem.voltage();
@@ -234,569 +107,160 @@ bool readPZEM(MeterReading &r) {
     r.frequency = pzem.frequency();
     r.powerFactor = pzem.pf();
 
-    if (
-        !isfinite(r.voltage) ||
-        !isfinite(r.current) ||
-        !isfinite(r.power) ||
-        !isfinite(r.energy) ||
-        !isfinite(r.frequency) ||
-        !isfinite(r.powerFactor)
-    ) {
-        Serial.println(
-            "[PZEM] Communication/read error."
-        );
+    // A failed UART read is NOT a zero-power reading.
+    if (!isfinite(r.voltage) || !isfinite(r.current) || !isfinite(r.power) ||
+        !isfinite(r.energy) || !isfinite(r.frequency) || !isfinite(r.powerFactor) ||
+        r.voltage < 0 || r.current < 0 || r.power < 0 || r.energy < 0 ||
+        r.frequency < 0 || r.powerFactor < 0 || r.powerFactor > 1) {
+        Serial.println("[PZEM] Invalid or unavailable reading.");
         return false;
     }
-
-    if (
-        r.voltage < 0 ||
-        r.current < 0 ||
-        r.power < 0 ||
-        r.energy < 0 ||
-        r.powerFactor < 0 ||
-        r.powerFactor > 1
-    ) {
-        Serial.println(
-            "[PZEM] Invalid measurement."
-        );
-        return false;
-    }
-
     return true;
 }
 
 void printReading(const MeterReading &r) {
-    Serial.println();
-    Serial.println("------ PZEM LIVE DATA ------");
-
-    Serial.print("Voltage: ");
-    Serial.print(r.voltage, 2);
-    Serial.println(" V");
-
-    Serial.print("Current: ");
-    Serial.print(r.current, 4);
-    Serial.println(" A");
-
-    Serial.print("Real Power: ");
-    Serial.print(r.power, 2);
-    Serial.println(" W");
-
-    Serial.print("Energy: ");
-    Serial.print(r.energy, 4);
-    Serial.println(" kWh");
-
-    Serial.print("Frequency: ");
-    Serial.print(r.frequency, 2);
-    Serial.println(" Hz");
-
-    Serial.print("Power Factor: ");
-    Serial.println(r.powerFactor, 3);
-
-    Serial.print("GPIO Command State: ");
-    Serial.println(
-        contactorOn ? "ON" : "OFF"
-    );
-
+    Serial.println("\n------ PZEM LIVE DATA ------");
+    Serial.printf("Voltage: %.2f V\n", r.voltage);
+    Serial.printf("Current: %.4f A\n", r.current);
+    Serial.printf("Real Power: %.2f W\n", r.power);
+    Serial.printf("Energy: %.4f kWh\n", r.energy);
+    Serial.printf("Frequency: %.2f Hz\n", r.frequency);
+    Serial.printf("Power Factor: %.3f\n", r.powerFactor);
+    Serial.printf("GPIO Command State: %s\n", outputCommandedOn ? "ON" : "OFF");
+    Serial.println("Physical Contactor Feedback: UNKNOWN");
     Serial.println("----------------------------");
 }
 
-// =====================================================
-// AUTHENTICATED HTTPS HELPER
-// =====================================================
-
-// Performs an authenticated POST to Railway.
-// Response body is returned through responseBody.
-
-int postToBackend(
-    const char* path,
-    const String &payload,
-    String &responseBody
-) {
-    responseBody = "";
-
+// The existing Railway backend expects these legacy endpoints and X-API-Key.
+int postToBackend(const char *path, const String &payload, String &response) {
+    response = "";
     if (!networkReady()) {
-        Serial.println(
-            "[API] Skipped: network/time unavailable."
-        );
+        Serial.println("[API] Skipped: Wi-Fi or NTP unavailable.");
         return -1;
     }
-
     WiFiClientSecure client;
     client.setCACert(RAILWAY_ROOT_CA);
-
     HTTPClient http;
-
-    String url = String(BACKEND_URL) + path;
-
-    if (!http.begin(client, url)) {
-        Serial.println(
-            "[API] HTTPS initialization failed."
-        );
+    if (!http.begin(client, String(BACKEND_URL) + path)) {
+        Serial.println("[API] HTTPS initialization failed.");
         return -1;
     }
-
     http.setTimeout(3500);
-    http.addHeader(
-        "Content-Type",
-        "application/json"
-    );
-
-<<<<<<< HEAD
-    http.addHeader(
-        "X-API-Key",
-        DEVICE_API_KEY
-    );
-=======
-    // Simulated values only, NOT sensor measurements.
-    String payload = "{";
-    payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
-    payload += "\"voltage\":120.4,";
-    payload += "\"current\":0.5,";
-    payload += "\"power\":60.2,";
-    payload += "\"status\":\"" + String(contactorOn ? "ON" : "OFF") + "\"";
-    payload += "}";
-
-    Serial.println("Sending simulated reading to Railway...");
->>>>>>> 05413b24a96caee16fce7ab82668e9a0fe326311
-
-    int responseCode = http.POST(payload);
-
-    if (responseCode > 0) {
-        responseBody = http.getString();
-    }
-
-    http.end();
-
-    return responseCode;
-}
-
-<<<<<<< HEAD
-// =====================================================
-// SEND LIVE TELEMETRY
-// =====================================================
-=======
-void checkRemoteContactorCommand() {
-    if (WiFi.status() != WL_CONNECTED || time(nullptr) < 1700000000) {
-        return;
-    }
-
-    WiFiClientSecure client;
-    client.setCACert(RAILWAY_ROOT_CA);
-
-    HTTPClient http;
-    const char* url =
-        "https://breaker-backend-production-bb10.up.railway.app/readings/command";
-
-    if (!http.begin(client, url)) {
-        Serial.println("Failed to initialize command check.");
-        return;
-    }
-
-    http.setTimeout(10000);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-API-Key", DEVICE_API_KEY);
-    const String payload = "{\"device_id\":\"" + String(DEVICE_ID) + "\"}";
-    const int responseCode = http.POST(payload);
-
-    if (responseCode == 200) {
-        const String response = http.getString();
-        if (response.indexOf("\"requested_status\":\"ON\"") >= 0 && !contactorOn) {
-            turnContactorOn();
-        } else if (response.indexOf("\"requested_status\":\"OFF\"") >= 0 && contactorOn) {
-            turnContactorOff();
-        }
-    } else if (responseCode > 0) {
-        Serial.print("Command check rejected: ");
-        Serial.println(http.getString());
-    } else {
-        Serial.print("Command check failed: ");
-        Serial.println(http.errorToString(responseCode));
-    }
-
+    const int code = http.POST(payload);
+    if (code > 0) response = http.getString();
     http.end();
+    return code;
 }
-
-void setup() {
-  Serial.begin(9600);
-  connectWiFi(); // Connect to Wi-Fi
->>>>>>> 05413b24a96caee16fce7ab82668e9a0fe326311
 
 void sendReading(const MeterReading &r) {
-    JsonDocument doc;
-
-    doc["device_id"] = DEVICE_ID;
-    doc["voltage"] = r.voltage;
-    doc["current"] = r.current;
-    doc["power"] = r.power;
-
-    // Backend accepts ON/OFF status.
-    // This is commanded GPIO state only.
-    doc["status"] =
-        contactorOn ? "ON" : "OFF";
-
+    JsonDocument body;
+    body["device_id"] = DEVICE_ID;
+    body["voltage"] = r.voltage;
+    body["current"] = r.current;
+    body["power"] = r.power;
+    // Legacy API only; do not invent unsupported temperature readings.
+    body["status"] = outputCommandedOn ? "ON" : "OFF";
     String payload;
-    serializeJson(doc, payload);
-
-    String response;
-
-    Serial.println(
-        "[API] Uploading live PZEM reading..."
-    );
-
-    int code = postToBackend(
-        "/readings",
-        payload,
-        response
-    );
-
-    Serial.print("[API] HTTP response: ");
-    Serial.println(code);
-
-<<<<<<< HEAD
-    if (code == 200) {
-        Serial.println(
-            "[API] Live reading uploaded."
-        );
-    } else if (code > 0) {
-        Serial.print("[API] Rejected: ");
-        Serial.println(response);
-    } else {
-        Serial.println(
-            "[API] Upload failed."
-        );
-=======
-          Serial.println("NTP synchronization successful!");
-          Serial.print("Current UTC time: ");
-          Serial.println(asctime(&timeinfo));
-
-          testRailwayHTTPS();
-      } else {
-          Serial.println("NTP failed after 30 seconds.");
-          Serial.println("Check internet access and UDP port 123.");
-      }
-  }
-
-  
-  pinMode(MOSFET_PIN, OUTPUT); // Set MOSFET_PIN as output
-  digitalWrite(MOSFET_PIN, LOW); // Ensure the contactor is off initially
-
-  Wire.begin(21, 22); // Initialize I2C with SDA on GPIO21 and SCL on GPIO22
-
-
-  Serial.println();
-  Serial.println("Smart Breaker Basic Test Started");
-  Serial.println("Type ON or OFF");
-  Serial.println();
+    serializeJson(body, payload);
+    String reply;
+    const int code = postToBackend("/readings", payload, reply);
+    Serial.printf("[API] Live reading upload HTTP: %d\n", code);
+    if (code > 0 && code != 200) Serial.println(reply);
 }
-
-
-void loop() {
-    // Preserve manual contactor commands.
-    handleSerialCommands();
-
-    static unsigned long lastUpdate = 0;
-
-    if (millis() - lastUpdate >= UPDATE_INTERVAL) {
-        lastUpdate = millis();
-
-        checkRemoteContactorCommand();
-
-        // Existing sensor functions.
-        float voltage = readVoltageRMS();
-        float adsCurrent = readADSCurrentRMS();
-
-        Serial.println("----- Readings -----");
-
-        Serial.print("Contactor: ");
-        Serial.println(contactorOn ? "ON" : "OFF");
-
-        Serial.print("Voltage Sensor GPIO35: ");
-        Serial.println(voltage, 2);
-        Serial.println(" V");
-
-        Serial.print("ADS1115 CT A0/A1: ");
-        Serial.print(adsCurrent, 4);
-        Serial.println(" A");
-
-        // Network test only — simulated values.
-        sendTestReading();
-
-        Serial.println("--------------------");
->>>>>>> 05413b24a96caee16fce7ab82668e9a0fe326311
-    }
-}
-
-// =====================================================
-// STATUS-ONLY UPLOAD
-// =====================================================
-
-// Used when PZEM readings fail.
-// Keeps the last good measurements in the backend
-// while still reporting the GPIO command state.
 
 void sendStatusOnly() {
-    JsonDocument doc;
-
-    doc["device_id"] = DEVICE_ID;
-    doc["status"] =
-        contactorOn ? "ON" : "OFF";
-
+    // A sensor fault must not overwrite the last valid electrical measurements.
+    JsonDocument body;
+    body["device_id"] = DEVICE_ID;
+    body["status"] = outputCommandedOn ? "ON" : "OFF";
     String payload;
-    serializeJson(doc, payload);
-
-    String response;
-
-    int code = postToBackend(
-        "/readings",
-        payload,
-        response
-    );
-
-    Serial.print(
-        "[STATUS] HTTP response: "
-    );
-    Serial.println(code);
-
-    if (code == 200) {
-        Serial.println(
-            "[STATUS] GPIO state reported."
-        );
-    } else if (code > 0) {
-        Serial.println(response);
-    }
+    serializeJson(body, payload);
+    String reply;
+    const int code = postToBackend("/readings", payload, reply);
+    Serial.printf("[API] Status-only upload HTTP: %d\n", code);
+    if (code > 0 && code != 200) Serial.println(reply);
 }
-
-// =====================================================
-// REMOTE COMMAND POLLING
-// =====================================================
-
-// Backend endpoint:
-// POST /readings/command
-//
-// Request:
-// { "device_id": "esp32-1" }
-//
-// Response:
-// {
-//   "requested_status": "ON",
-//   "command_expires_at": "..."
-// }
-//
-// The backend returns null for expired commands.
 
 void checkRemoteCommand(bool meterValid) {
-    if (!networkReady()) {
-        return;
-    }
-
-    JsonDocument requestDoc;
-    requestDoc["device_id"] = DEVICE_ID;
-
+    if (!networkReady()) return;
+    JsonDocument request;
+    request["device_id"] = DEVICE_ID;
     String payload;
-    serializeJson(requestDoc, payload);
-
-    String response;
-
-    int code = postToBackend(
-        "/readings/command",
-        payload,
-        response
-    );
-
+    serializeJson(request, payload);
+    String reply;
+    const int code = postToBackend("/readings/command", payload, reply);
     if (code != 200) {
-        Serial.print(
-            "[COMMAND] Poll failed: "
-        );
-        Serial.println(code);
-
-        if (code > 0) {
-            Serial.println(response);
-        }
-
+        Serial.printf("[COMMAND] Poll failed: %d\n", code);
         return;
     }
-
-    JsonDocument responseDoc;
-
-    DeserializationError error =
-        deserializeJson(responseDoc, response);
-
-    if (error) {
-        Serial.println(
-            "[COMMAND] Invalid JSON response."
-        );
+    JsonDocument data;
+    if (deserializeJson(data, reply)) {
+        Serial.println("[COMMAND] Invalid JSON response.");
         return;
     }
-
-    const char* requested =
-        responseDoc["requested_status"] | "";
-
-    // --------------------
-    // Remote ON
-    // --------------------
-
-    if (strcmp(requested, "ON") == 0) {
-        if (contactorOn) {
-            return;
-        }
-
+    const char *requested = data["requested_status"] | "";
+    if (strcmp(requested, "OFF") == 0) {
+        if (outputCommandedOn) commandOff();
+    } else if (strcmp(requested, "ON") == 0 && !outputCommandedOn) {
         if (!meterValid) {
-            Serial.println(
-                "[COMMAND] ON blocked: "
-                "no valid current PZEM reading."
-            );
+            Serial.println("[SAFETY] Remote ON blocked: sensor unavailable.");
             return;
         }
-
-        Serial.println(
-            "[COMMAND] Remote ON received."
-        );
-
-        turnContactorOn();
-    }
-
-    // --------------------
-    // Remote OFF
-    // --------------------
-
-    else if (strcmp(requested, "OFF") == 0) {
-        if (contactorOn) {
-            Serial.println(
-                "[COMMAND] Remote OFF received."
-            );
-
-            turnContactorOff();
-        }
+        commandOn();
     }
 }
-
-// =====================================================
-// SERIAL COMMANDS
-// =====================================================
 
 void handleSerialCommands() {
-    if (!Serial.available()) {
-        return;
-    }
-
-    String command =
-        Serial.readStringUntil('\n');
-
-    command.trim();
-    command.toUpperCase();
-
-    if (command == "ON") {
-        turnContactorOn();
-    }
-
-    else if (command == "OFF") {
-        turnContactorOff();
-    }
-
-    else if (command == "READ") {
+    if (!Serial.available()) return;
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    cmd.toUpperCase();
+    if (cmd == "ON") {
+        commandOn();
+    } else if (cmd == "OFF") {
+        commandOff();
+    } else if (cmd == "READ") {
         MeterReading r;
-
-        if (readPZEM(r)) {
-            printReading(r);
-        }
-    }
-
-    else if (command == "STATUS") {
-        Serial.print("[GPIO] State: ");
-        Serial.println(
-            contactorOn ? "ON" : "OFF"
-        );
-    }
-
-    else if (command.length() > 0) {
-        Serial.println(
-            "Commands: ON, OFF, READ, STATUS"
-        );
+        if (readPZEM(r)) printReading(r);
+    } else if (cmd == "STATUS") {
+        Serial.printf("[STATUS] GPIO commanded: %s, physical state: UNKNOWN\n",
+                      outputCommandedOn ? "ON" : "OFF");
+    } else if (cmd.length()) {
+        Serial.println("Commands: ON, OFF, READ, STATUS");
     }
 }
-
-// =====================================================
-// SETUP
-// =====================================================
+} // namespace
 
 void setup() {
-    // Establish software OFF before network startup.
-    // A physical output pull-down and fail-safe
-    // driver are still required for reset/boot safety.
+    // GPIO default must ALSO be enforced externally during boot/reset.
     digitalWrite(MOSFET_PIN, LOW);
     pinMode(MOSFET_PIN, OUTPUT);
     digitalWrite(MOSFET_PIN, LOW);
-    contactorOn = false;
+    outputCommandedOn = false;
 
     Serial.begin(9600);
     Serial.setTimeout(100);
-
-    Serial.println();
-    Serial.println("============================");
-    Serial.println("       BreakerSense");
-    Serial.println("   PZEM + Remote Commands");
-    Serial.println("============================");
-
-    if (!ENABLE_OUTPUT_ON) {
-        Serial.println(
-            "[SAFETY] GPIO ON is disabled."
-        );
-    } else {
-        Serial.println(
-            "[SAFETY] Low-voltage test enabled."
-        );
-    }
-
+    Serial.println("\nBreakerSense - PZEM single-channel recovery firmware");
+    Serial.println(ENABLE_OUTPUT_ON ? "[SAFETY] Low-voltage ON test enabled." :
+                                     "[SAFETY] Output ON disabled by default.");
     connectWiFi();
-    setupTime();
-
-    Serial.println();
-    Serial.println("[SYSTEM] Ready");
-    Serial.println(
-        "Commands: ON, OFF, READ, STATUS"
-    );
+    setupClock();
+    Serial.println("[SYSTEM] Ready. Commands: ON, OFF, READ, STATUS");
 }
-
-// =====================================================
-// MAIN LOOP
-// =====================================================
 
 void loop() {
     handleSerialCommands();
     maintainWiFi();
+    if (millis() - lastUpdate < UPDATE_INTERVAL_MS) return;
+    lastUpdate = millis();
 
-    if (
-        millis() - lastUpdate >=
-        UPDATE_INTERVAL
-    ) {
-        lastUpdate = millis();
-
-        MeterReading reading;
-
-        // Read PZEM first.
-        bool meterValid = readPZEM(reading);
-
-        if (meterValid) {
-            printReading(reading);
-        } else {
-            Serial.println(
-                "[SYSTEM] PZEM data unavailable."
-            );
-        }
-
-        // Look for website ON/OFF commands.
-        checkRemoteCommand(meterValid);
-
-        // Report new GPIO state and live values.
-        if (meterValid) {
-            sendReading(reading);
-        } else {
-            // Do not fabricate electrical readings.
-            sendStatusOnly();
-        }
-
-        Serial.println(
-            "[SYSTEM] Cycle complete."
-        );
-    }
+    MeterReading r;
+    const bool valid = readPZEM(r);
+    if (valid) printReading(r);
+    checkRemoteCommand(valid);
+    if (valid) sendReading(r);
+    else sendStatusOnly();
+    Serial.println("[SYSTEM] Cycle complete.");
 }
