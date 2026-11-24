@@ -45,7 +45,7 @@ router.post("/command", requireDeviceAuth, async (req, res) => {
 // registered to some user via POST /api/devices — that's what ties a
 // reading back to the right account.
 // Body example: { "device_id": "esp32-1", "voltage": 120.5, "current": 3.2, "power": 385.6, "temperature": 41.5 }
-// (each measurement is optional, but at least one is required; non-numeric or
+// (each measurement is optional when a valid status is present; non-numeric or
 //  out-of-range values are rejected with 400 and nothing is stored)
 router.post("/", requireDeviceAuth, async (req, res) => {
   const device_id = req.deviceId;
@@ -71,6 +71,11 @@ router.post("/", requireDeviceAuth, async (req, res) => {
       return res.status(404).json({ error: "This device_id hasn't been registered to an account yet" });
     }
     const device = owned.rows[0];
+    const markDeviceSeen = () =>
+      pool.query(
+        "UPDATE devices SET last_seen_at = NOW() WHERE device_id = $1",
+        [device_id]
+      );
 
     if (reportedStatus) {
       await pool.query(
@@ -84,6 +89,8 @@ router.post("/", requireDeviceAuth, async (req, res) => {
     }
 
     if (Object.values(parsed.values).every((value) => value === null)) {
+      // Status-only payloads still verify the authenticated device connection.
+      await markDeviceSeen();
       return res.status(200).json({ device_id, status: reportedStatus });
     }
 
@@ -158,6 +165,7 @@ router.post("/", requireDeviceAuth, async (req, res) => {
     }
     */
 
+    await markDeviceSeen();
     res.status(200).json(result.rows[0]);
   } catch (err) {
     console.error("Insert reading error:", err);

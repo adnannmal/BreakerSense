@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { useState } from "react";
 import { api } from "../api";
+import "./AuthPage.css";
 
 function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -32,57 +33,64 @@ function ResetPasswordPage() {
   }
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
-        <h1 style={styles.logo}>BreakerSense</h1>
+    <div className="auth-page">
+      <header className="auth-header">
+        <Link className="auth-brand" to="/" viewTransition aria-label="BreakerSense home">
+          <span className="auth-brand__mark" aria-hidden="true">B</span>
+          <span>BreakerSense</span>
+        </Link>
       </header>
 
-      <main style={styles.main}>
-        <form style={styles.form} onSubmit={handleSubmit}>
-          <h2>Reset password</h2>
+      <main className="auth-main">
+        <form className="auth-card" onSubmit={handleSubmit} aria-busy={loading}>
+          <h1>Reset password</h1>
 
           {!token ? (
-            <p style={styles.error}>This password reset link is invalid or has expired.</p>
+            <p className="auth-message auth-message--error" role="alert">This password reset link is invalid or has expired.</p>
           ) : message ? (
             <>
-              <p style={styles.success} role="status">{message}</p>
-              <Link to="/">Back to login</Link>
+              <p className="auth-message auth-message--success" role="status">{message}</p>
+              <Link to="/" viewTransition>Back to login</Link>
             </>
           ) : (
             <>
-              <input
-                type="password"
-                placeholder="New password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                style={styles.input}
-                autoComplete="new-password"
-                minLength={6}
-                required
-              />
+              <label className="auth-field" htmlFor="reset-password">
+                New password
+                <input
+                  id="reset-password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={6}
+                  required
+                />
+              </label>
 
-              <input
-                type="password"
-                placeholder="Confirm new password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                style={styles.input}
-                autoComplete="new-password"
-                minLength={6}
-                required
-              />
+              <label className="auth-field" htmlFor="confirm-reset-password">
+                Confirm new password
+                <input
+                  id="confirm-reset-password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={6}
+                  required
+                />
+              </label>
 
-              {error && <p style={styles.error}>{error}</p>}
+              {error && <p className="auth-message auth-message--error" role="alert">{error}</p>}
 
-              <button style={styles.button} type="submit" disabled={loading}>
+              <button className="auth-submit" type="submit" disabled={loading}>
                 {loading ? "Saving..." : "Save new password"}
               </button>
             </>
           )}
 
           {!message && (
-            <p style={styles.text}>
-              <Link to="/">Back to login</Link>
+            <p className="auth-links">
+              <Link to="/" viewTransition>Back to login</Link>
             </p>
           )}
         </form>
@@ -90,63 +98,5 @@ function ResetPasswordPage() {
     </div>
   );
 }
-
-const styles = {
-  page: {
-    minHeight: "100vh",
-    backgroundColor: "#f4f6f8",
-    fontFamily: "Arial",
-  },
-  header: {
-    backgroundColor: "#1f2937",
-    padding: "20px",
-    textAlign: "center",
-  },
-  logo: {
-    color: "white",
-    margin: 0,
-  },
-  main: {
-    display: "flex",
-    justifyContent: "center",
-    marginTop: "80px",
-  },
-  form: {
-    backgroundColor: "white",
-    padding: "30px",
-    borderRadius: "10px",
-    width: "320px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "15px",
-  },
-  input: {
-    padding: "12px",
-    fontSize: "16px",
-  },
-  button: {
-    padding: "12px",
-    backgroundColor: "#2563eb",
-    color: "white",
-    border: "none",
-    borderRadius: "6px",
-    cursor: "pointer",
-  },
-  text: {
-    textAlign: "center",
-    fontSize: "14px",
-    margin: 0,
-  },
-  error: {
-    color: "red",
-    margin: 0,
-    fontSize: "14px",
-  },
-  success: {
-    color: "#166534",
-    margin: 0,
-    fontSize: "14px",
-  },
-};
 
 export default ResetPasswordPage;

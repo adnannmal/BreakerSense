@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useState } from "react";
 import { api } from "../api";
+import "./AuthPage.css";
 
 function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -24,98 +25,45 @@ function ForgotPasswordPage() {
   }
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
-        <h1 style={styles.logo}>BreakerSense</h1>
+    <div className="auth-page">
+      <header className="auth-header">
+        <Link className="auth-brand" to="/" viewTransition aria-label="BreakerSense home">
+          <span className="auth-brand__mark" aria-hidden="true">B</span>
+          <span>BreakerSense</span>
+        </Link>
       </header>
 
-      <main style={styles.main}>
-        <form style={styles.form} onSubmit={handleSubmit}>
-          <h2>Forgot password?</h2>
-          <p style={styles.text}>Enter your account email and we’ll send a reset link if an account exists.</p>
+      <main className="auth-main">
+        <form className="auth-card" onSubmit={handleSubmit} aria-busy={loading}>
+          <h1>Forgot password?</h1>
+          <p className="auth-description">Enter your account email and we’ll send a reset link if an account exists.</p>
 
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            style={styles.input}
-            autoComplete="email"
-            required
-          />
+          <label className="auth-field" htmlFor="forgot-email">
+            Email
+            <input
+              id="forgot-email"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+              required
+            />
+          </label>
 
-          {error && <p style={styles.error}>{error}</p>}
-          {message && <p style={styles.success} role="status">{message}</p>}
+          {error && <p className="auth-message auth-message--error" role="alert">{error}</p>}
+          {message && <p className="auth-message auth-message--success" role="status">{message}</p>}
 
-          <button style={styles.button} type="submit" disabled={loading}>
+          <button className="auth-submit" type="submit" disabled={loading}>
             {loading ? "Sending..." : "Send reset link"}
           </button>
 
-          <p style={styles.text}>
-            <Link to="/">Back to login</Link>
+          <p className="auth-links">
+            <Link to="/" viewTransition>Back to login</Link>
           </p>
         </form>
       </main>
     </div>
   );
 }
-
-const styles = {
-  page: {
-    minHeight: "100vh",
-    backgroundColor: "#f4f6f8",
-    fontFamily: "Arial",
-  },
-  header: {
-    backgroundColor: "#1f2937",
-    padding: "20px",
-    textAlign: "center",
-  },
-  logo: {
-    color: "white",
-    margin: 0,
-  },
-  main: {
-    display: "flex",
-    justifyContent: "center",
-    marginTop: "80px",
-  },
-  form: {
-    backgroundColor: "white",
-    padding: "30px",
-    borderRadius: "10px",
-    width: "320px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "15px",
-  },
-  input: {
-    padding: "12px",
-    fontSize: "16px",
-  },
-  button: {
-    padding: "12px",
-    backgroundColor: "#2563eb",
-    color: "white",
-    border: "none",
-    borderRadius: "6px",
-    cursor: "pointer",
-  },
-  text: {
-    textAlign: "center",
-    fontSize: "14px",
-    margin: 0,
-  },
-  error: {
-    color: "red",
-    margin: 0,
-    fontSize: "14px",
-  },
-  success: {
-    color: "#166534",
-    margin: 0,
-    fontSize: "14px",
-  },
-};
 
 export default ForgotPasswordPage;

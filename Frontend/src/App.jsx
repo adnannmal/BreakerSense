@@ -1,8 +1,7 @@
 import {
-  BrowserRouter,
-  Routes,
-  Route,
-  Navigate
+  createBrowserRouter,
+  Navigate,
+  RouterProvider
 } from "react-router-dom";
 
 import LoginPage from "./pages/LoginPage";
@@ -22,38 +21,31 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+const router = createBrowserRouter([
+  { path: "/", element: <LoginPage /> },
+  { path: "/forgot-password", element: <ForgotPasswordPage /> },
+  { path: "/reset-password", element: <ResetPasswordPage /> },
+  { path: "/create-account", element: <CreateAccountPage /> },
+  {
+    path: "/success",
+    element: (
+      <ProtectedRoute>
+        <SuccessPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/account",
+    element: (
+      <ProtectedRoute>
+        <AccountPage />
+      </ProtectedRoute>
+    ),
+  },
+]);
+
 function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<LoginPage />} />
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-
-        <Route
-          path="/create-account"
-          element={<CreateAccountPage />}
-        />
-
-        <Route 
-          path="/success" 
-          element={
-            <ProtectedRoute>
-              <SuccessPage />
-            </ProtectedRoute>
-          } 
-        />
-        <Route
-          path="/account"
-          element={
-            <ProtectedRoute>
-              <AccountPage />
-            </ProtectedRoute>
-          }
-        />
-      </Routes>
-    </BrowserRouter>
-  );
+  return <RouterProvider router={router} />;
 }
 
 export default App;

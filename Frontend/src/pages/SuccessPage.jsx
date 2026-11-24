@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   CategoryScale,
@@ -20,9 +20,36 @@ const EMPTY_FORM = {
   deviceId: "",
   name: "",
   location: "",
+  channel: "",
   capacity: "",
   status: "inactive",
 };
+
+function escapeCppString(value) {
+  return String(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n");
+}
+
+function createSecretsHeader({
+  deviceId,
+  apiKey,
+  wifiSsid = "",
+  wifiPassword = "",
+}) {
+  const wifiConfigured = wifiSsid.length > 0;
+  return [
+    "#pragma once",
+    "",
+    `#define WIFI_SSID "${escapeCppString(wifiConfigured ? wifiSsid : "replace-with-your-wifi-name")}"`,
+    `#define WIFI_PASSWORD "${escapeCppString(wifiConfigured ? wifiPassword : "replace-with-your-wifi-password")}"`,
+    `#define DEVICE_ID "${escapeCppString(deviceId)}"`,
+    `#define DEVICE_API_KEY "${escapeCppString(apiKey)}"`,
+    "",
+  ].join("\n");
+}
 
 function formatNumber(value, digits = 1) {
   if (value === null || value === undefined || value === "") return "--";
@@ -43,6 +70,10 @@ function SuccessPage() {
   const [loading, setLoading] = useState(true);
   const [dataError, setDataError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [setupCredentials, setSetupCredentials] = useState(null);
+  const [setupCopyMessage, setSetupCopyMessage] = useState("");
+  const [wifiSsid, setWifiSsid] = useState("");
+  const [wifiPassword, setWifiPassword] = useState("");
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -50,6 +81,27 @@ function SuccessPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [commandError, setCommandError] = useState("");
   const [isCommanding, setIsCommanding] = useState(false);
+  const [editingChannelDeviceId, setEditingChannelDeviceId] = useState("");
+  const [channelDraft, setChannelDraft] = useState("");
+  const [channelError, setChannelError] = useState("");
+  const [isSavingChannel, setIsSavingChannel] = useState(false);
+  const [keyRotationError, setKeyRotationError] = useState("");
+  const [isRotatingKey, setIsRotatingKey] = useState(false);
+  const addBreakerButtonRef = useRef(null);
+  const dialogRef = useRef(null);
+  const isSavingRef = useRef(isSaving);
+  const closeSetupWizard = useCallback(() => {
+    if (
+      window.confirm(
+        "Close setup and discard the one-time API key? You will need to rotate the key to view a new one."
+      )
+    ) {
+      setSetupCredentials(null);
+      setSetupCopyMessage("");
+      setWifiSsid("");
+      setWifiPassword("");
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -123,21 +175,87 @@ function SuccessPage() {
     };
   }, [selectedDeviceId]);
 
+  useEffect(() => {
+    if (!isModalOpen && !setupCredentials) return undefined;
+    const dialog = dialogRef.current;
+    const addBreakerButton = addBreakerButtonRef.current;
+    const previouslyFocused = document.activeElement;
+    const focusableSelector =
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+    const focusableElements = () =>
+      Array.from(dialog?.querySelectorAll(focusableSelector) || []);
+
+    const initialFocus =
+      dialog?.querySelector(".setup-wifi-fields input") ||
+      dialog?.querySelector('input[autofocus]') ||
+      focusableElements()[0];
+    initialFocus?.focus();
+
+    function handleDialogKeyDown(event) {
+      if (event.key === "Escape") {
+        if (!isSavingRef.current) {
+          event.preventDefault();
+          if (setupCredentials) {
+            closeSetupWizard();
+          } else {
+            setIsModalOpen(false);
+          }
+        }
+        return;
+      }
+
+      if (event.key !== "Tab" || !dialog) return;
+      const elements = focusableElements();
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (!first || !last) {
+        event.preventDefault();
+      } else if (
+        event.shiftKey &&
+        (document.activeElement === first || !dialog.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last || !dialog.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleDialogKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleDialogKeyDown);
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus();
+      } else if (addBreakerButton?.isConnected) {
+        addBreakerButton.focus();
+      }
+    };
+  }, [closeSetupWizard, isModalOpen, setupCredentials]);
+
   const dashboard =
     dashboardResponse?.device?.device_id === selectedDeviceId
       ? dashboardResponse
       : null;
   const device = dashboard?.device;
   const latest = dashboard?.latest;
-  const updatedAt = dashboard?.server_time
-    ? new Date(dashboard.server_time).toLocaleTimeString()
-    : "Never";
   const readingAge = latest?.updated_at && dashboard?.server_time
     ? new Date(dashboard.server_time).getTime() -
       new Date(latest.updated_at).getTime()
     : null;
   const readingFresh =
     readingAge !== null && readingAge >= 0 && readingAge < 15000;
+  const heartbeatAge = device?.last_seen_at && dashboard?.server_time
+    ? new Date(dashboard.server_time).getTime() -
+      new Date(device.last_seen_at).getTime()
+    : null;
+  const deviceConnected =
+    heartbeatAge !== null && heartbeatAge >= 0 && heartbeatAge < 15000;
+  const isEditingChannel =
+    Boolean(selectedDeviceId) && editingChannelDeviceId === selectedDeviceId;
   const normalizedStatus = device?.status?.toUpperCase();
   const statusTone =
     normalizedStatus === "ON"
@@ -207,7 +325,7 @@ function SuccessPage() {
 
   const sensors = [
     makeSensor("Voltage", latest?.voltage, "V", device?.voltage_threshold, "blue"),
-    makeSensor("Current", latest?.current, "A", device?.current_threshold, "teal"),
+    makeSensor("Current", latest?.current, "A", device?.current_threshold, "navy"),
     makeSensor("Power", latest?.power, "W", device?.power_threshold, "blue"),
     makeSensor(
       "Temperature",
@@ -242,12 +360,12 @@ function SuccessPage() {
         data: history.map((point) =>
           point.current == null ? null : Number(point.current)
         ),
-        borderColor: "#1b9586",
-        backgroundColor: "rgba(27, 149, 134, 0.12)",
+        borderColor: "#1e3a5f",
+        backgroundColor: "rgba(30, 58, 95, 0.12)",
         fill: true,
         tension: 0.35,
         pointRadius: 3,
-        pointBackgroundColor: "#1b9586",
+        pointBackgroundColor: "#1e3a5f",
       },
     ],
   };
@@ -257,11 +375,11 @@ function SuccessPage() {
     maintainAspectRatio: false,
     plugins: { legend: { display: false }, tooltip: { displayColors: false } },
     scales: {
-      x: { grid: { display: false }, ticks: { color: "#718087" } },
+      x: { grid: { display: false }, ticks: { color: "#718096" } },
       y: {
         border: { display: false },
-        grid: { color: "#e8efed" },
-        ticks: { color: "#718087" },
+        grid: { color: "#e1e7ef" },
+        ticks: { color: "#718096" },
       },
     },
   };
@@ -271,6 +389,19 @@ function SuccessPage() {
     setFormData((current) => ({ ...current, [name]: value }));
   }
 
+  function handleGenerateDeviceId() {
+    if (!window.crypto?.getRandomValues) {
+      setFormError("This browser cannot generate a secure ID. Enter a unique ID manually.");
+      return;
+    }
+    const bytes = window.crypto.getRandomValues(new Uint8Array(8));
+    const suffix = Array.from(bytes, (byte) =>
+      byte.toString(16).padStart(2, "0")
+    ).join("");
+    setFormData((current) => ({ ...current, deviceId: `esp32-${suffix}` }));
+    setFormError("");
+  }
+
   async function handleAddBreaker(event) {
     event.preventDefault();
     if (isSaving) return;
@@ -278,33 +409,52 @@ function SuccessPage() {
       !formData.deviceId.trim() ||
       !formData.name.trim() ||
       !formData.location.trim() ||
+      !formData.channel.trim() ||
       !formData.capacity ||
       !Number.isFinite(Number(formData.capacity)) ||
       Number(formData.capacity) <= 0
     ) {
-      setFormError("Complete all fields with a valid positive capacity.");
+      setFormError("Complete all fields, including a channel, with a valid positive capacity.");
       return;
     }
 
     setFormError("");
+    isSavingRef.current = true;
     setIsSaving(true);
     try {
       const newDevice = await api.addDevice({
         device_id: formData.deviceId.trim(),
         nickname: formData.name.trim(),
         location: formData.location.trim(),
+        channel: formData.channel.trim(),
         capacity_amps: Number(formData.capacity),
         status: "OFF",
       });
-      const updatedDevices = await api.getDevices();
-      setDevices(updatedDevices);
+      if (typeof newDevice.api_key !== "string" || !newDevice.api_key) {
+        throw new Error(
+          "The breaker was registered, but setup credentials were not returned. Rotate its API key before configuring the ESP32."
+        );
+      }
+      const { api_key: apiKey, ...registeredDevice } = newDevice;
+      setDevices((current) => [
+        ...current.filter((item) => item.device_id !== registeredDevice.device_id),
+        registeredDevice,
+      ]);
       setSelectedDeviceId(newDevice.device_id);
+      setSetupCopyMessage("");
+      setWifiSsid("");
+      setWifiPassword("");
+      setSetupCredentials({
+        deviceId: newDevice.device_id,
+        apiKey,
+      });
       setFormData({ ...EMPTY_FORM });
       setIsModalOpen(false);
       setDataError("");
     } catch (err) {
       setFormError(err.message);
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
   }
@@ -373,6 +523,115 @@ function SuccessPage() {
     }
   }
 
+  async function copyFirmwareConfig() {
+    if (!wifiSsid) {
+      setSetupCopyMessage("Enter the ESP32's Wi-Fi network name first.");
+      return;
+    }
+    const config = createSecretsHeader({
+      ...setupCredentials,
+      wifiSsid,
+      wifiPassword,
+    });
+    if (!navigator.clipboard?.writeText) {
+      setSetupCopyMessage("Clipboard access is unavailable. Select and copy the code below.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(config);
+      setSetupCopyMessage("Firmware configuration copied.");
+    } catch (error) {
+      setSetupCopyMessage(
+        `Could not copy configuration: ${error.message || "clipboard access was denied"}`
+      );
+    }
+  }
+
+  function startEditingChannel() {
+    setChannelDraft(device?.channel || "");
+    setChannelError("");
+    setEditingChannelDeviceId(selectedDeviceId);
+  }
+
+  async function handleChannelSubmit(event) {
+    event.preventDefault();
+    if (!selectedDeviceId || isSavingChannel) return;
+    const channel = channelDraft.trim();
+    if (channel.length > 80) {
+      setChannelError("Channel labels must be 80 characters or fewer.");
+      return;
+    }
+
+    setChannelError("");
+    setIsSavingChannel(true);
+    try {
+      const updated = await api.updateDeviceChannel(
+        selectedDeviceId,
+        channel || null
+      );
+      setDevices((current) =>
+        current.map((item) =>
+          item.device_id === updated.device_id
+            ? { ...item, channel: updated.channel }
+            : item
+        )
+      );
+      setDashboardResponse((current) =>
+        current?.device?.device_id === updated.device_id
+          ? {
+              ...current,
+              device: { ...current.device, channel: updated.channel },
+            }
+          : current
+      );
+      setEditingChannelDeviceId("");
+    } catch (err) {
+      setChannelError(err.message);
+    } finally {
+      setIsSavingChannel(false);
+    }
+  }
+
+  async function handleRotateDeviceKey() {
+    if (!selectedDeviceId || isRotatingKey) return;
+    const confirmed = window.confirm(
+      "Rotate this device's API key? Its current firmware key will stop working immediately until you update and upload the new configuration."
+    );
+    if (!confirmed) return;
+
+    setKeyRotationError("");
+    setIsRotatingKey(true);
+    try {
+      const result = await api.rotateDeviceKey(selectedDeviceId);
+      setDevices((current) =>
+        current.map((item) =>
+          item.device_id === result.device_id
+            ? { ...item, last_seen_at: null }
+            : item
+        )
+      );
+      setDashboardResponse((current) =>
+        current?.device?.device_id === result.device_id
+          ? {
+              ...current,
+              device: { ...current.device, last_seen_at: null },
+            }
+          : current
+      );
+      setSetupCopyMessage("");
+      setWifiSsid("");
+      setWifiPassword("");
+      setSetupCredentials({
+        deviceId: result.device_id,
+        apiKey: result.api_key,
+      });
+    } catch (err) {
+      setKeyRotationError(err.message);
+    } finally {
+      setIsRotatingKey(false);
+    }
+  }
+
   return (
     <div className="dashboard-page">
       {loading && <p>Loading registered breakers...</p>}
@@ -380,6 +639,120 @@ function SuccessPage() {
         <p role="alert" style={{ color: "#b42318", marginBottom: 16 }}>
           Backend error: {dataError}
         </p>
+      )}
+      {setupCredentials && (
+        <div className="modal-backdrop setup-backdrop" role="presentation">
+          <div
+            className="breaker-modal provisioning-modal"
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="setup-heading"
+          >
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">ESP32 setup</p>
+                <h2 id="setup-heading">Configure and verify your device</h2>
+              </div>
+              <button
+                className="modal-close"
+                type="button"
+                aria-label="Close setup and discard the one-time API key"
+                onClick={closeSetupWizard}
+              >
+                ×
+              </button>
+            </div>
+            <p className="setup-warning">
+              The device API key is shown only once. Enter Wi-Fi credentials to prepare
+              the firmware file. They stay in this page and are not sent to BreakerSense.
+            </p>
+            <ol className="setup-steps">
+              <li>Save the generated file as <code>Firmware/include/secrets.h</code>.</li>
+              <li>Build and upload the <code>esp32dev</code> firmware; open its serial monitor at 9600 baud.</li>
+              <li>Wait for an authenticated device contact below. The dashboard checks automatically.</li>
+            </ol>
+            <div className="setup-wifi-fields">
+              <label>
+                Wi-Fi network name
+                <input
+                  autoComplete="off"
+                  value={wifiSsid}
+                  onChange={(event) => {
+                    setWifiSsid(event.target.value);
+                    setSetupCopyMessage("");
+                  }}
+                  placeholder="Network name"
+                />
+              </label>
+              <label>
+                Wi-Fi password
+                <input
+                  autoComplete="new-password"
+                  type="password"
+                  value={wifiPassword}
+                  onChange={(event) => {
+                    setWifiPassword(event.target.value);
+                    setSetupCopyMessage("");
+                  }}
+                  placeholder="Password"
+                />
+                <span className="form-hint">Leave blank for an open Wi-Fi network.</span>
+              </label>
+            </div>
+            <pre className="firmware-config"><code>{createSecretsHeader({
+              ...setupCredentials,
+              wifiSsid,
+              wifiPassword,
+            })}</code></pre>
+            <div className="setup-copy-row">
+              <button
+                className="submit-button"
+                type="button"
+                onClick={copyFirmwareConfig}
+                disabled={!wifiSsid}
+              >
+                Copy firmware config
+              </button>
+              <span role="status" aria-live="polite">{setupCopyMessage}</span>
+            </div>
+            <div className={`setup-connection ${deviceConnected && selectedDeviceId === setupCredentials.deviceId ? "setup-connection--connected" : ""}`}>
+              <span
+                className="connection-dot"
+                aria-hidden="true"
+              />
+              <div role="status" aria-live="polite">
+                <strong>
+                  {deviceConnected && selectedDeviceId === setupCredentials.deviceId
+                    ? "Connection verified"
+                    : "Waiting for ESP32"}
+                </strong>
+                <p>
+                  {deviceConnected && selectedDeviceId === setupCredentials.deviceId
+                    ? "The backend received an authenticated device message."
+                    : "After upload, the ESP32 should report within a few seconds. Check Wi-Fi, device credentials, and the serial monitor if it stays offline."}
+                </p>
+              </div>
+              <span className="muted-text">
+                Last authenticated contact: {formatDate(
+                  selectedDeviceId === setupCredentials.deviceId
+                    ? device?.last_seen_at
+                    : null
+                )}
+              </span>
+            </div>
+            <div className="modal-actions">
+              <button className="submit-button" type="button" onClick={() => {
+                setSetupCredentials(null);
+                setSetupCopyMessage("");
+                setWifiSsid("");
+                setWifiPassword("");
+              }}>
+                I saved the firmware config
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {!loading && !dataError && devices.length === 0 && (
         <p>No breakers registered yet. Click Add breaker to begin.</p>
@@ -391,7 +764,7 @@ function SuccessPage() {
           <h1>System overview</h1>
         </div>
         <div className="dashboard-header__actions">
-          <Link className="account-link" to="/account">
+          <Link className="account-link" to="/account" viewTransition>
             Account
           </Link>
           {devices.length > 1 && (
@@ -408,6 +781,7 @@ function SuccessPage() {
             </select>
           )}
           <button
+            ref={addBreakerButtonRef}
             className="add-breaker-button"
             type="button"
             onClick={() => setIsModalOpen(true)}
@@ -419,10 +793,14 @@ function SuccessPage() {
             <span
               className="connection-dot"
               aria-hidden="true"
-              style={{ backgroundColor: readingFresh ? "#24a18f" : "#94a3b8" }}
+              style={{ backgroundColor: deviceConnected ? "#1e3a5f" : "#94a3b8" }}
             />
-            <span>{readingFresh ? "Live monitor" : "Waiting for device"}</span>
-            <span className="updated-time">Updated {updatedAt}</span>
+            <span role="status" aria-live="polite">
+              {deviceConnected ? "Connected" : "Waiting for device"}
+            </span>
+            <span className="updated-time">
+              Last contact {formatDate(device?.last_seen_at)}
+            </span>
           </div>
         </div>
       </header>
@@ -442,6 +820,16 @@ function SuccessPage() {
               </span>
               {selectedDeviceId && (
                 <button
+                  className="device-setup-button"
+                  type="button"
+                  onClick={handleRotateDeviceKey}
+                  disabled={isRotatingKey}
+                >
+                  {isRotatingKey ? "Rotating key..." : "Reconfigure ESP32"}
+                </button>
+              )}
+              {selectedDeviceId && (
+                <button
                   className="delete-breaker-button"
                   type="button"
                   onClick={handleDeleteBreaker}
@@ -451,6 +839,55 @@ function SuccessPage() {
                 </button>
               )}
             </div>
+          </div>
+          {keyRotationError && (
+            <p className="delete-breaker-error" role="alert">
+              Could not reconfigure ESP32: {keyRotationError}
+            </p>
+          )}
+          <div className="breaker-channel">
+            <div>
+              <span className="metric-label">Assigned channel</span>
+              <strong>{device?.channel || "Unassigned"}</strong>
+            </div>
+            {!isEditingChannel && (
+              <button
+                className="channel-edit-button"
+                type="button"
+                onClick={startEditingChannel}
+                disabled={!device}
+              >
+                {device?.channel ? "Change channel" : "Assign channel"}
+              </button>
+            )}
+            {isEditingChannel && (
+              <form className="channel-edit-form" onSubmit={handleChannelSubmit}>
+                <label>
+                  Logical circuit/channel
+                  <input
+                    autoFocus
+                    maxLength={80}
+                    value={channelDraft}
+                    onChange={(event) => setChannelDraft(event.target.value)}
+                    placeholder="e.g. Panel A / Circuit 1"
+                  />
+                </label>
+                {channelError && <p className="form-error" role="alert">{channelError}</p>}
+                <div className="modal-actions">
+                  <button
+                    className="cancel-button"
+                    type="button"
+                    onClick={() => setEditingChannelDeviceId("")}
+                    disabled={isSavingChannel}
+                  >
+                    Cancel
+                  </button>
+                  <button className="submit-button" type="submit" disabled={isSavingChannel}>
+                    {isSavingChannel ? "Saving..." : "Save channel"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
           <div className="breaker-control">
             <div className="breaker-control__copy">
@@ -525,7 +962,7 @@ function SuccessPage() {
           </div>
         </section>
 
-        <section aria-labelledby="sensors-heading">
+        <section className="sensor-section" aria-labelledby="sensors-heading">
           <div className="section-title-row">
             <div>
               <p className="eyebrow">Telemetry</p>
@@ -600,6 +1037,7 @@ function SuccessPage() {
         >
           <div
             className="breaker-modal"
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-heading"
@@ -621,14 +1059,27 @@ function SuccessPage() {
             <form className="breaker-form" onSubmit={handleAddBreaker}>
               <label>
                 Device ID
-                <input
-                  name="deviceId"
-                  value={formData.deviceId}
-                  onChange={handleFormChange}
-                  placeholder="esp32-1"
-                  required
-                  autoFocus
-                />
+                <span className="device-id-row">
+                  <input
+                    name="deviceId"
+                    value={formData.deviceId}
+                    onChange={handleFormChange}
+                    placeholder="esp32-1"
+                    maxLength={80}
+                    required
+                    autoFocus
+                  />
+                  <button
+                    className="channel-edit-button"
+                    type="button"
+                    onClick={handleGenerateDeviceId}
+                  >
+                    Generate ID
+                  </button>
+                </span>
+                <span className="form-hint">
+                  Generate an ID or choose one; the setup screen adds it to the ESP32 config exactly.
+                </span>
               </label>
               <label>
                 Breaker name
@@ -646,7 +1097,18 @@ function SuccessPage() {
                   name="location"
                   value={formData.location}
                   onChange={handleFormChange}
-                  placeholder="e.g. Panel B / Line 02"
+                  placeholder="e.g. Workshop"
+                  required
+                />
+              </label>
+              <label>
+                Logical circuit/channel
+                <input
+                  name="channel"
+                  value={formData.channel}
+                  onChange={handleFormChange}
+                  placeholder="e.g. Panel A / Circuit 1"
+                  maxLength={80}
                   required
                 />
               </label>

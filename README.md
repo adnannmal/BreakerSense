@@ -3,6 +3,12 @@ Senior Design Project
 
 By: Adnan Malik, Darren Peng, James McCormack
 
+## ESP32 onboarding
+
+The dashboard guides device registration, local firmware configuration, connection
+verification, and software-only circuit channel assignment. See
+[Firmware/README.md](Firmware/README.md) for the upload and safety instructions.
+
 ## Remote breaker control
 
 The dashboard queues ON/OFF commands for up to 30 seconds. The ESP32 firmware must be

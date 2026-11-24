@@ -24,12 +24,14 @@ const DEVICE_COLUMNS = `
   device_id,
   nickname,
   location,
+  channel,
   capacity_amps,
   status,
   voltage_threshold,
   current_threshold,
   power_threshold,
   temperature_threshold,
+  last_seen_at,
   created_at
 `;
 
@@ -56,6 +58,42 @@ router.get("/", async (req, res) => {
     return res.status(500).json({
       error: "Could not load devices",
     });
+  }
+});
+
+// PATCH /api/devices/:device_id/channel
+// Assign or clear a software-only circuit/channel label.
+router.patch("/:device_id/channel", async (req, res) => {
+  const { channel } = req.body || {};
+  if (channel !== null && typeof channel !== "string") {
+    return res.status(400).json({
+      error: "channel is required and must be a string or null",
+    });
+  }
+
+  const normalizedChannel =
+    typeof channel === "string" ? channel.trim() || null : null;
+  if (normalizedChannel && normalizedChannel.length > 80) {
+    return res.status(400).json({ error: "channel must be 80 characters or fewer" });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE devices
+       SET channel = $1
+       WHERE device_id = $2 AND user_id = $3
+       RETURNING device_id, channel`,
+      [normalizedChannel, req.params.device_id, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Device not found" });
+    }
+
+    return res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Update device channel error:", error);
+    return res.status(500).json({ error: "Could not update device channel" });
   }
 });
 
@@ -106,6 +144,7 @@ router.post("/", async (req, res) => {
     device_id,
     nickname,
     location,
+    channel,
     capacity_amps,
     status,
     voltage_threshold,
@@ -125,6 +164,18 @@ router.post("/", async (req, res) => {
   }
 
   const deviceId = device_id.trim();
+
+  if (channel !== undefined && channel !== null && typeof channel !== "string") {
+    return res.status(400).json({
+      error: "channel must be a string",
+    });
+  }
+  const channelName = typeof channel === "string" ? channel.trim() || null : null;
+  if (channelName && channelName.length > 80) {
+    return res.status(400).json({
+      error: "channel must be 80 characters or fewer",
+    });
+  }
 
   // Validate initial status.
   const startStatus = status || "OFF";
@@ -203,6 +254,7 @@ router.post("/", async (req, res) => {
         user_id,
         nickname,
         location,
+        channel,
         capacity_amps,
         status,
         voltage_threshold,
@@ -212,8 +264,8 @@ router.post("/", async (req, res) => {
         api_key_hash
       )
       VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8, $9, $10, $11
+        $1, $2, $3, $4, $5, $6,
+        $7, $8, $9, $10, $11, $12
       )
       RETURNING ${DEVICE_COLUMNS}`,
       [
@@ -221,6 +273,7 @@ router.post("/", async (req, res) => {
         req.userId,
         nickname || null,
         location || null,
+        channelName,
         capacity,
         startStatus,
         voltage_threshold ?? DEFAULT_VOLTAGE_THRESHOLD,
@@ -271,7 +324,8 @@ router.post("/:device_id/rotate-key", async (req, res) => {
     // Update the key only if this user owns the device.
     const result = await pool.query(
       `UPDATE devices
-       SET api_key_hash = $1
+       SET api_key_hash = $1,
+           last_seen_at = NULL
        WHERE device_id = $2
          AND user_id = $3
        RETURNING device_id`,

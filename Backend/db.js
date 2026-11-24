@@ -50,6 +50,8 @@ async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS channel TEXT;`);
+  await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;`);
 
   // Thresholds
   await pool.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS voltage_threshold NUMERIC;`);

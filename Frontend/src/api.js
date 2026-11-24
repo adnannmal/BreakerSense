@@ -92,6 +92,23 @@ export const api = {
         body: JSON.stringify(device),
     }),
 
+  updateDeviceChannel: (deviceId, channel) =>
+    request(`/api/devices/${encodeURIComponent(deviceId)}/channel`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${sessionStorage.getItem("token")}`,
+      },
+      body: JSON.stringify({ channel }),
+    }),
+
+  rotateDeviceKey: (deviceId) =>
+    request(`/api/devices/${encodeURIComponent(deviceId)}/rotate-key`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionStorage.getItem("token")}`,
+      },
+    }),
+
   deleteDevice: (deviceId) =>
     request(`/api/devices/${encodeURIComponent(deviceId)}`, {
       method: "DELETE",

@@ -9,18 +9,18 @@ function AccountPage() {
   function handleSignOut() {
     sessionStorage.removeItem("token");
     sessionStorage.removeItem("email");
-    navigate("/", { replace: true });
+    navigate("/", { replace: true, viewTransition: true });
   }
 
   return (
     <div className="account-page">
       <header className="account-header">
-        <Link className="account-brand" to="/success" aria-label="BreakerSense home">
+        <Link className="account-brand" to="/success" viewTransition aria-label="BreakerSense home">
           <span className="account-brand__mark" aria-hidden="true">B</span>
           <span>BreakerSense</span>
         </Link>
         <nav className="account-nav" aria-label="Main navigation">
-          <Link to="/success">Dashboard</Link>
+          <Link to="/success" viewTransition>Dashboard</Link>
           <span className="account-nav__current" aria-current="page">Account</span>
           <button type="button" onClick={handleSignOut}>Sign out</button>
         </nav>
@@ -46,7 +46,7 @@ function AccountPage() {
         </section>
 
         <div className="account-grid">
-          <section className="account-card" aria-labelledby="details-heading">
+          <section className="account-card account-card--details" aria-labelledby="details-heading">
             <div className="account-card__heading">
               <span className="account-card__icon account-card__icon--profile" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
@@ -87,7 +87,7 @@ function AccountPage() {
             <p className="account-security__copy">
               Need to change your password? We’ll help you securely reset it using your email.
             </p>
-            <Link className="account-action" to="/forgot-password">
+            <Link className="account-action" to="/forgot-password" viewTransition>
               Reset password <span aria-hidden="true">↗</span>
             </Link>
           </section>
@@ -99,7 +99,7 @@ function AccountPage() {
             <h2 id="devices-heading">Back to monitoring</h2>
             <p>Manage your registered breakers and review their latest readings.</p>
           </div>
-          <Link className="account-dashboard-link" to="/success">
+          <Link className="account-dashboard-link" to="/success" viewTransition>
             Open dashboard <span aria-hidden="true">→</span>
           </Link>
         </section>

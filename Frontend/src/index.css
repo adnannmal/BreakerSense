@@ -54,6 +54,113 @@ body {
   margin: 0;
 }
 
+@keyframes card-transition-out {
+  0% {
+    transform: translateX(0);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  45% {
+    transform: translateX(22px);
+  }
+
+  55% {
+    transform: translateX(22px);
+    animation-timing-function: cubic-bezier(0.42, 0, 1, 1);
+  }
+
+  65% {
+    transform: translateX(0);
+    animation-timing-function: cubic-bezier(0.42, 0, 1, 1);
+  }
+
+  to {
+    transform: translateX(-100vw);
+  }
+}
+
+@keyframes card-transition-in {
+  from {
+    transform: translateX(100vw);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none !important;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(auth-card),
+::view-transition-old(dashboard-breaker),
+::view-transition-old(dashboard-trend),
+::view-transition-old(dashboard-sensors),
+::view-transition-old(dashboard-alerts),
+::view-transition-old(account-profile-card),
+::view-transition-old(account-details-card),
+::view-transition-old(account-security-card),
+::view-transition-old(account-dashboard-card) {
+  animation: 350ms cubic-bezier(0.42, 0, 1, 1) both card-transition-out;
+  mix-blend-mode: normal;
+}
+
+::view-transition-new(auth-card),
+::view-transition-new(dashboard-breaker),
+::view-transition-new(dashboard-trend),
+::view-transition-new(dashboard-sensors),
+::view-transition-new(dashboard-alerts),
+::view-transition-new(account-profile-card),
+::view-transition-new(account-details-card),
+::view-transition-new(account-security-card),
+::view-transition-new(account-dashboard-card) {
+  animation: 550ms cubic-bezier(0.42, 0, 1, 1) both card-transition-in;
+  mix-blend-mode: normal;
+}
+
+::view-transition-new(auth-card) { animation-duration: 700ms; }
+
+::view-transition-new(auth-card),
+::view-transition-new(dashboard-breaker),
+::view-transition-new(account-profile-card) { animation-delay: 100ms; }
+
+::view-transition-new(dashboard-trend),
+::view-transition-new(account-details-card) { animation-delay: 150ms; }
+
+::view-transition-new(dashboard-sensors),
+::view-transition-new(account-security-card) { animation-delay: 200ms; }
+
+::view-transition-new(dashboard-alerts),
+::view-transition-new(account-dashboard-card) { animation-delay: 250ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-old(auth-card),
+  ::view-transition-old(dashboard-breaker),
+  ::view-transition-old(dashboard-trend),
+  ::view-transition-old(dashboard-sensors),
+  ::view-transition-old(dashboard-alerts),
+  ::view-transition-old(account-profile-card),
+  ::view-transition-old(account-details-card),
+  ::view-transition-old(account-security-card),
+  ::view-transition-old(account-dashboard-card),
+  ::view-transition-new(auth-card),
+  ::view-transition-new(dashboard-breaker),
+  ::view-transition-new(dashboard-trend),
+  ::view-transition-new(dashboard-sensors),
+  ::view-transition-new(dashboard-alerts),
+  ::view-transition-new(account-profile-card),
+  ::view-transition-new(account-details-card),
+  ::view-transition-new(account-security-card),
+  ::view-transition-new(account-dashboard-card) {
+    animation: none !important;
+  }
+}
+
 #root {
   width: 1126px;
   max-width: 100%;

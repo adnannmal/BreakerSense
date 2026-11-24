@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { api } from "../api";
+import "./AuthPage.css";
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -10,7 +11,6 @@ function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  
   async function handleLogin(e) {
     e.preventDefault();
 
@@ -23,132 +23,67 @@ function LoginPage() {
       sessionStorage.setItem("token", data.token);
       sessionStorage.setItem("email", data.email);
 
-      navigate("/success");
+      navigate("/success", { viewTransition: true });
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }
-
-
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
-        <h1 style={styles.logo}>BreakerSense</h1>
+    <div className="auth-page">
+      <header className="auth-header">
+        <Link className="auth-brand" to="/" viewTransition aria-label="BreakerSense home">
+          <span className="auth-brand__mark" aria-hidden="true">B</span>
+          <span>BreakerSense</span>
+        </Link>
       </header>
 
-      <main style={styles.main}>
-        <form style={styles.form} onSubmit={handleLogin}>
-          <h2>Login</h2>
+      <main className="auth-main">
+        <form className="auth-card" onSubmit={handleLogin} aria-busy={loading}>
+          <h1>Sign in</h1>
 
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) =>
-              setEmail(e.target.value)
-            }
-            style={styles.input}
-          />
+          <label className="auth-field" htmlFor="login-email">
+            Email
+            <input
+              id="login-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              required
+            />
+          </label>
 
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) =>
-              setPassword(e.target.value)
-            }
-            style={styles.input}
-          />
+          <label className="auth-field" htmlFor="login-password">
+            Password
+            <input
+              id="login-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </label>
 
-          {error && (
-            <p style={styles.error}>
-              {error}
-            </p>
-          )}
+          {error && <p className="auth-message auth-message--error" role="alert">{error}</p>}
 
-          <button
-            style={styles.button}
-            type="submit"
-            disabled={loading}
-          >
-            {loading ? "Signing In..." : "Sign In"}
+          <button className="auth-submit" type="submit" disabled={loading}>
+            {loading ? "Signing in..." : "Sign in"}
           </button>
 
-          <p style={styles.text}>
-            <Link to="/forgot-password">Forgot password?</Link>
-          </p>
-
-          <p style={styles.text}>
-            Don’t have an account?{" "}
-            <Link to="/create-account">
-              Create one
-            </Link>
-          </p>
+          <div className="auth-links">
+            <p><Link to="/forgot-password" viewTransition>Forgot password?</Link></p>
+            <p>
+              Don’t have an account?{" "}
+              <Link to="/create-account" viewTransition>Create one</Link>
+            </p>
+          </div>
         </form>
       </main>
     </div>
   );
 }
-
-const styles = {
-  page: {
-    minHeight: "100vh",
-    backgroundColor: "#f4f6f8",
-    fontFamily: "Arial",
-  },
-
-  header: {
-    backgroundColor: "#1f2937",
-    padding: "20px",
-    textAlign: "center",
-  },
-
-  logo: {
-    color: "white",
-    margin: 0,
-  },
-
-  main: {
-    display: "flex",
-    justifyContent: "center",
-    marginTop: "80px",
-  },
-
-  form: {
-    backgroundColor: "white",
-    padding: "30px",
-    borderRadius: "10px",
-    width: "320px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "15px",
-  },
-
-  input: {
-    padding: "12px",
-    fontSize: "16px",
-  },
-
-  button: {
-    padding: "12px",
-    backgroundColor: "#2563eb",
-    color: "white",
-    border: "none",
-    borderRadius: "6px",
-  },
-
-  text: {
-    textAlign: "center",
-    fontSize: "14px",
-  },
-
-  error: {
-    color: "red",
-    margin: 0,
-    fontSize: "14px",
-  },
-};
 
 export default LoginPage;
